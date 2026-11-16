@@ -1,6 +1,6 @@
 // Офлайн: страница открывается из кэша, данные — из localStorage приложения.
-const CACHE = "oa-shell-v1";
-const SHELL = ["./", "index.html", "style.css", "config.js", "engine.js", "app.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
+const CACHE = "oa-shell-v2";
+const SHELL = ["./", "index.html", "style.css", "config.js", "i18n.js", "engine.js", "app.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -1,0 +1,471 @@
+// Тексты интерфейса на трёх языках: русский, кыргызский, английский.
+// Названия дисциплин, групп, корпусов и ФИО приходят с сайта ОшТУ и не переводятся.
+(function (root) {
+  "use strict";
+
+  const DICT = {
+    ru: {
+      langName: "Русский",
+      locale: "ru-RU",
+      title: "Аналитика ОшТУ",
+      subtitleDefault: "Загрузка аудиторного фонда",
+      fBuilding: "Корпус",
+      allBuildings: "Все корпуса",
+      buildingN: "Корпус {n}",
+      fWeek: "Неделя",
+      weekBoth: "Обе",
+      weekTop: "Верхняя",
+      weekBottom: "Нижняя",
+      refresh: "Обновить данные",
+      language: "Язык",
+      nav: { overview: "Обзор", time: "Время", rooms: "Аудитории", buildings: "Корпуса", teachers: "Преподаватели", groups: "Группы", free: "Свободные", issues: "Накладки" },
+      loading: "Загружаю расписание всех аудиторий…",
+      loadError: "Не удалось загрузить данные. Проверь интернет и обнови страницу.",
+      reload: "Обновить",
+      howCalc: "ⓘ как считается",
+      roomKindsTitle: "Типы аудиторий",
+      roomKindsHint: "Тип определяется по занятиям в аудитории за неделю. Компьютерные классы — оценка по названиям дисциплин (информатика, программирование, базы данных и т. п.): на сайте ОшТУ оснащение аудиторий не указано.",
+      lessonTypesTitle: "Виды занятий",
+      lessonTypesHint: "Пары в неделю по видам: лекции, практические, лабораторные. Поток нескольких групп в одной аудитории считается одной парой.",
+      insightsTitle: "Главные выводы",
+      heatTitle: "Когда заняты аудитории",
+      heatHint: "% аудиторий, занятых в эту пару",
+      byDayTitle: "По дням недели",
+      byPairTitle: "По номерам пар",
+      pairsPerWeek: "пар в неделю",
+      topRoomsTitle: "Самые загруженные",
+      loadHint: "% занятых пар в неделю",
+      lowRoomsTitle: "Меньше всего используются",
+      lowRoomsHint: "среди тех, где есть занятия",
+      unusedTitle: "Не используются",
+      unusedCount: "{n} аудиторий без занятий",
+      allUsed: "Все аудитории используются",
+      allRoomsTitle: "Все аудитории",
+      searchPh: "Поиск: 3/303, информатика…",
+      allTypes: "Все типы",
+      th: { room: "Аудитория", kind: "Тип", load: "Загрузка", perWeek: "Пар/нед", lk: "Лекц.", pr: "Практ.", lb: "Лаб.", groups: "Групп", teachers: "Преп." },
+      roomTableNote: "Нажми на аудиторию, чтобы увидеть её недельную карту.",
+      nothingFound: "Ничего не найдено",
+      noData: "Нет данных",
+      buildingsTitle: "Загрузка корпусов",
+      buildingsHint: "% занятых пар от всех аудиторий корпуса",
+      buildingsTable: "Корпуса в цифрах",
+      bth: { name: "Корпус", rooms: "Аудиторий", used: "Используются", perWeek: "Пар/нед", load: "Загрузка", usedLoad: "Загрузка используемых" },
+      topTeachersTitle: "Больше всего пар",
+      topTeachersHint: "пар в неделю (аудиторных)",
+      distTitle: "Распределение нагрузки",
+      howManyTeachers: "сколько преподавателей",
+      topGroupsTitle: "Самые загруженные группы",
+      groupDistTitle: "Распределение нагрузки групп",
+      howManyGroups: "сколько групп",
+      subjectsTitle: "Самые частые дисциплины",
+      freeTitle: "Найти свободную аудиторию",
+      now: "Сейчас",
+      noFree: "Свободных аудиторий нет",
+      teacherDoubleTitle: "Преподаватель в двух аудиториях одновременно",
+      teacherDoubleHint: "возможные ошибки расписания",
+      conflictsTitle: "Разные занятия в одной аудитории в одно время",
+      notFound: "Не найдено",
+      noConflicts: "Не найдено — в одной аудитории одновременно идут только потоки или подгруппы одного занятия.",
+      footer: "© 2026 ESA · Эркебаев Самат Адылович · Данные: открытый раздел portal.oshtu.kg · Неофициальный сервис",
+      footInfo: "Данные сайта ОшТУ собраны {newest} (самая старая аудитория — {oldest}). Обновляются автоматически раз в 6 часов.",
+
+      days: ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+      daysFull: ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"],
+      pairShort: "{n}-я",
+      pairFull: "{n}-я пара",
+      week: { top: "верхняя неделя", bottom: "нижняя неделя" },
+      weekLetter: { top: "В", bottom: "Н" },
+      semAutumn: "осенний семестр",
+      semSpring: "весенний семестр",
+      scopeAll: "все корпуса",
+      scopeOne: "корпус {name}",
+      weekScope: { both: "среднее за верхнюю и нижнюю недели", top: "верхняя неделя", bottom: "нижняя неделя" },
+
+      kind: {
+        lecture: ["Лекционные", "больше 60% — лекции"],
+        practice: ["Практические", "в основном практические занятия"],
+        lab: ["Лабораторные", "от 40% — лабораторные работы"],
+        computer: ["Компьютерные", "оценка: информатика, программирование, БД…"],
+        mixed: ["Смешанные", "разные виды занятий"],
+        unused: ["Не используются", "нет занятий в расписании"],
+      },
+      kindFilter: { computer: "Компьютерные (оценка)" },
+      ltype: { лк: "Лекции", пр: "Практические", лб: "Лабораторные", се: "Семинары", "": "Без вида" },
+      donutRooms: "аудиторий",
+      donutRoomsShort: "ауд.",
+      donutPairs: "пар в неделю",
+      donutPairsShort: "пар",
+
+      kpi: {
+        rooms: "Аудиторий", roomsSub: "используются {used}, пустуют {unused}",
+        load: "Средняя загрузка", loadSub: "используемых; всех — {all}%",
+        pairs: "Пар в неделю", pairsSub: "{n} дисциплин",
+        peak: "Пик", peakSub: "занято {n}% аудиторий",
+        teachers: "Преподавателей", teachersSub: "ведут аудиторные занятия",
+        groups: "Групп", groupsSub: "с занятиями в аудиториях",
+      },
+      ins: {
+        peak: "Пик занятости — <b>{day}, {pair}</b>: заняты <b>{share}%</b> аудиторий. Самый загруженный день — <b>{busiest}</b>.",
+        saturday: "Суббота почти свободна: на неё приходится лишь <b>{share}%</b> пар — это главный резерв аудиторного фонда.",
+        lastPair: "6-я пара (15:50) загружена на <b>{share}%</b> от пиковой — вечерние слоты используются слабее.",
+        unused: "<b>{unused}</b> из {rooms} аудиторий не используются в расписании, а средняя загрузка используемых — <b>{load}%</b> (≈{slots} из 36 пар в неделю).",
+        types: "Практические занятия — <b>{pr}%</b> пар, лекции — <b>{lk}%</b>, лабораторные — <b>{lb}%</b>.",
+        topRoom: "Самая загруженная аудитория — <b>{room}</b> ({load}%, {pairs} в неделю).",
+        topBuilding: "Плотнее всего загружен корпус <b>{name}</b> — {load}%.",
+        doubles: "Найдено <b>{n}</b> {cases}, когда преподаватель стоит в двух аудиториях одновременно — стоит проверить (вкладка «Накладки»).",
+      },
+      cases: ["случай", "случая", "случаев"],
+      pairWord: ["пара", "пары", "пар"],
+      roomTip: "загрузка {load}% · {pairs} пар/нед",
+      roomTipTypes: "лекц. {lk} · практ. {pr} · лаб. {lb}",
+      heatTip: "занято {share}% аудиторий",
+      pairsCount: "{n} пар",
+      buildingTip: "{rooms} аудиторий, используются {used}<br>{pairs} пар в неделю<br>загрузка {load}% (используемых — {usedLoad}%)",
+      roomsShort: "{n} ауд.",
+      dist: ["до 4 пар", "4–8", "8–12", "12–16", "16–20", "больше 20"],
+      distTip: "{label} пар в неделю",
+      distAvg: "В среднем {avg} пар в неделю. Учитываются только занятия с аудиторией в расписании.",
+      freeSummary: "{day}, {pair} ({time}), {week}: свободно {n} {rooms}.",
+      freeRooms: ["учебная аудитория", "учебные аудитории", "учебных аудиторий"],
+      issueWhen: "{who} — {day}, {pair}, {week}",
+      issueRooms: "Аудитории: {list}",
+      roomTitle: "Аудитория {name}",
+      noLessons: "занятий нет",
+      dLoad: "загрузка", dPairs: "пар в неделю", dGroups: "групп", dTeachers: "преподавателей",
+      dNote: "В — верхняя неделя, Н — нижняя. Наведи на клетку, чтобы увидеть занятие. Лекций {lk}, практических {pr}, лабораторных {lb} (пар за выбранные недели).",
+      cellFree: "свободна",
+      ago: { now: "только что", min: "{n} мин назад", hour: "{n} ч назад" },
+    },
+
+    ky: {
+      langName: "Кыргызча",
+      locale: "ky-KG",
+      title: "ОшТУ аналитикасы",
+      subtitleDefault: "Аудиториялык фонддун жүктөмү",
+      fBuilding: "Корпус",
+      allBuildings: "Бардык корпустар",
+      buildingN: "{n}-корпус",
+      fWeek: "Апта",
+      weekBoth: "Экөө тең",
+      weekTop: "Үстүңкү",
+      weekBottom: "Астыңкы",
+      refresh: "Маалыматты жаңыртуу",
+      language: "Тил",
+      nav: { overview: "Жалпы", time: "Убакыт", rooms: "Аудиториялар", buildings: "Корпустар", teachers: "Окутуучулар", groups: "Топтор", free: "Бош", issues: "Кайчылаштар" },
+      loading: "Бардык аудиториялардын расписаниеси жүктөлүүдө…",
+      loadError: "Маалымат жүктөлгөн жок. Интернетти текшерип, баракты жаңыртыңыз.",
+      reload: "Жаңыртуу",
+      howCalc: "ⓘ кантип эсептелет",
+      roomKindsTitle: "Аудиториялардын түрлөрү",
+      roomKindsHint: "Түрү аудиториядагы бир апталык сабактар боюнча аныкталат. Компьютердик класстар — сабактардын аталышы боюнча болжолдуу баа (информатика, программалоо, маалымат базалары ж. б.): ОшТУнун сайтында аудиториялардын жабдылышы көрсөтүлгөн эмес.",
+      lessonTypesTitle: "Сабактардын түрлөрү",
+      lessonTypesHint: "Аптасына пара саны түрлөрү боюнча: лекция, практика, лабораториялык. Бир аудиториядагы бир нече топтун агымы бир пара деп эсептелет.",
+      insightsTitle: "Негизги жыйынтыктар",
+      heatTitle: "Аудиториялар качан бош эмес",
+      heatHint: "ушул парада бош эмес аудиториялардын %",
+      byDayTitle: "Апта күндөрү боюнча",
+      byPairTitle: "Пара номерлери боюнча",
+      pairsPerWeek: "аптасына пара",
+      topRoomsTitle: "Эң көп жүктөлгөндөр",
+      loadHint: "аптасына бош эмес паралардын %",
+      lowRoomsTitle: "Эң аз колдонулгандар",
+      lowRoomsHint: "сабагы бар аудиториялардын ичинен",
+      unusedTitle: "Колдонулбайт",
+      unusedCount: "сабагы жок {n} аудитория",
+      allUsed: "Бардык аудиториялар колдонулат",
+      allRoomsTitle: "Бардык аудиториялар",
+      searchPh: "Издөө: 3/303, информатика…",
+      allTypes: "Бардык түрлөр",
+      th: { room: "Аудитория", kind: "Түрү", load: "Жүктөм", perWeek: "Пара/апта", lk: "Лекц.", pr: "Практ.", lb: "Лаб.", groups: "Топ", teachers: "Окут." },
+      roomTableNote: "Аудиториянын апталык картасын көрүү үчүн аны басыңыз.",
+      nothingFound: "Эч нерсе табылган жок",
+      noData: "Маалымат жок",
+      buildingsTitle: "Корпустардын жүктөмү",
+      buildingsHint: "корпустун бардык аудиторияларынан бош эмес паралардын %",
+      buildingsTable: "Корпустар сандар менен",
+      bth: { name: "Корпус", rooms: "Аудитория", used: "Колдонулат", perWeek: "Пара/апта", load: "Жүктөм", usedLoad: "Колдонулгандардын жүктөмү" },
+      topTeachersTitle: "Эң көп пара",
+      topTeachersHint: "аптасына пара (аудиториялык)",
+      distTitle: "Жүктөмдүн бөлүштүрүлүшү",
+      howManyTeachers: "канча окутуучу",
+      topGroupsTitle: "Эң көп жүктөлгөн топтор",
+      groupDistTitle: "Топтордун жүктөмүнүн бөлүштүрүлүшү",
+      howManyGroups: "канча топ",
+      subjectsTitle: "Эң көп кездешкен сабактар",
+      freeTitle: "Бош аудитория табуу",
+      now: "Азыр",
+      noFree: "Бош аудитория жок",
+      teacherDoubleTitle: "Окутуучу бир убакта эки аудиторияда",
+      teacherDoubleHint: "расписаниедеги мүмкүн болгон каталар",
+      conflictsTitle: "Бир аудиторияда бир убакта ар башка сабактар",
+      notFound: "Табылган жок",
+      noConflicts: "Табылган жок — бир аудиторияда бир убакта бир эле сабактын агымы же топчолору гана өтөт.",
+      footer: "© 2026 ESA · Эркебаев Самат Адылович · Маалымат: portal.oshtu.kg ачык бөлүмү · Расмий эмес кызмат",
+      footInfo: "ОшТУ сайтынын маалыматы {newest} чогултулган (эң эски аудитория — {oldest}). Ар 6 саатта автоматтык түрдө жаңыланат.",
+
+      days: ["Дш", "Шш", "Шр", "Бш", "Жм", "Иш"],
+      daysFull: ["Дүйшөмбү", "Шейшемби", "Шаршемби", "Бейшемби", "Жума", "Ишемби"],
+      pairShort: "{n}-пара",
+      pairFull: "{n}-пара",
+      week: { top: "үстүңкү апта", bottom: "астыңкы апта" },
+      weekLetter: { top: "Ү", bottom: "А" },
+      semAutumn: "күзгү семестр",
+      semSpring: "жазгы семестр",
+      scopeAll: "бардык корпустар",
+      scopeOne: "{name} корпус",
+      weekScope: { both: "үстүңкү жана астыңкы апталардын орточосу", top: "үстүңкү апта", bottom: "астыңкы апта" },
+
+      kind: {
+        lecture: ["Лекциялык", "60%дан ашыгы — лекциялар"],
+        practice: ["Практикалык", "негизинен практикалык сабактар"],
+        lab: ["Лабораториялык", "40%дан тартып — лабораториялык иштер"],
+        computer: ["Компьютердик", "баа: информатика, программалоо, МБ…"],
+        mixed: ["Аралаш", "ар кандай сабактар"],
+        unused: ["Колдонулбайт", "расписаниеде сабак жок"],
+      },
+      kindFilter: { computer: "Компьютердик (баа)" },
+      ltype: { лк: "Лекциялар", пр: "Практикалык", лб: "Лабораториялык", се: "Семинарлар", "": "Түрү жок" },
+      donutRooms: "аудитория",
+      donutRoomsShort: "ауд.",
+      donutPairs: "аптасына пара",
+      donutPairsShort: "пара",
+
+      kpi: {
+        rooms: "Аудитория", roomsSub: "колдонулат {used}, бош турат {unused}",
+        load: "Орточо жүктөм", loadSub: "колдонулгандар; бардыгы — {all}%",
+        pairs: "Аптасына пара", pairsSub: "{n} сабак",
+        peak: "Чокусу", peakSub: "аудиториялардын {n}% бош эмес",
+        teachers: "Окутуучу", teachersSub: "аудиториялык сабак өтөт",
+        groups: "Топ", groupsSub: "аудиторияда сабагы бар",
+      },
+      ins: {
+        peak: "Эң көп жүктөм — <b>{day}, {pair}</b>: аудиториялардын <b>{share}%</b> бош эмес. Эң жүктөлгөн күн — <b>{busiest}</b>.",
+        saturday: "Ишемби дээрлик бош: ага паралардын <b>{share}%</b> гана туура келет — бул аудиториялык фонддун негизги резерви.",
+        lastPair: "6-пара (15:50) чокусуна салыштырмалуу <b>{share}%</b> жүктөлгөн — кечки убакыт азыраак колдонулат.",
+        unused: "{rooms} аудиториянын <b>{unused}</b> расписаниеде колдонулбайт, ал эми колдонулгандардын орточо жүктөмү — <b>{load}%</b> (аптасына 36 паранын ≈{slots}).",
+        types: "Практикалык сабактар — паралардын <b>{pr}%</b>, лекциялар — <b>{lk}%</b>, лабораториялык — <b>{lb}%</b>.",
+        topRoom: "Эң көп жүктөлгөн аудитория — <b>{room}</b> ({load}%, аптасына {pairs}).",
+        topBuilding: "Эң тыгыз жүктөлгөн корпус — <b>{name}</b>, {load}%.",
+        doubles: "Окутуучу бир убакта эки аудиторияда турган <b>{n}</b> учур табылды — текшерүү керек («Кайчылаштар» бөлүмү).",
+      },
+      cases: ["учур"],
+      pairWord: ["пара"],
+      roomTip: "жүктөм {load}% · аптасына {pairs} пара",
+      roomTipTypes: "лекц. {lk} · практ. {pr} · лаб. {lb}",
+      heatTip: "аудиториялардын {share}% бош эмес",
+      pairsCount: "{n} пара",
+      buildingTip: "{rooms} аудитория, колдонулат {used}<br>аптасына {pairs} пара<br>жүктөм {load}% (колдонулгандар — {usedLoad}%)",
+      roomsShort: "{n} ауд.",
+      dist: ["4 парага чейин", "4–8", "8–12", "12–16", "16–20", "20дан ашык"],
+      distTip: "аптасына {label} пара",
+      distAvg: "Орточо аптасына {avg} пара. Расписаниеде аудиториясы көрсөтүлгөн сабактар гана эсептелет.",
+      freeSummary: "{day}, {pair} ({time}), {week}: {n} {rooms} бош.",
+      freeRooms: ["окуу аудиториясы"],
+      issueWhen: "{who} — {day}, {pair}, {week}",
+      issueRooms: "Аудиториялар: {list}",
+      roomTitle: "{name} аудиториясы",
+      noLessons: "сабак жок",
+      dLoad: "жүктөм", dPairs: "аптасына пара", dGroups: "топ", dTeachers: "окутуучу",
+      dNote: "Ү — үстүңкү апта, А — астыңкы. Сабакты көрүү үчүн уячанын үстүнө алып барыңыз. Лекция {lk}, практика {pr}, лабораториялык {lb} (тандалган апталар үчүн пара).",
+      cellFree: "бош",
+      ago: { now: "азыр эле", min: "{n} мүн. мурун", hour: "{n} саат мурун" },
+    },
+
+    en: {
+      langName: "English",
+      locale: "en-GB",
+      title: "OshTU Analytics",
+      subtitleDefault: "Classroom utilisation",
+      fBuilding: "Building",
+      allBuildings: "All buildings",
+      buildingN: "Building {n}",
+      fWeek: "Week",
+      weekBoth: "Both",
+      weekTop: "Upper",
+      weekBottom: "Lower",
+      refresh: "Refresh data",
+      language: "Language",
+      nav: { overview: "Overview", time: "Time", rooms: "Rooms", buildings: "Buildings", teachers: "Teachers", groups: "Groups", free: "Free rooms", issues: "Clashes" },
+      loading: "Loading the timetable of every room…",
+      loadError: "Couldn't load the data. Check your connection and reload the page.",
+      reload: "Reload",
+      howCalc: "ⓘ how it's calculated",
+      roomKindsTitle: "Room types",
+      roomKindsHint: "The type is based on the classes held in the room during the week. Computer labs are an estimate from course names (computer science, programming, databases, etc.): the OshTU website doesn't list room equipment.",
+      lessonTypesTitle: "Class types",
+      lessonTypesHint: "Classes per week by type: lectures, practicals, labs. Several groups sharing one room in the same slot count as one class.",
+      insightsTitle: "Key findings",
+      heatTitle: "When rooms are busy",
+      heatHint: "% of rooms in use during this period",
+      byDayTitle: "By day of week",
+      byPairTitle: "By class period",
+      pairsPerWeek: "classes per week",
+      topRoomsTitle: "Busiest rooms",
+      loadHint: "% of weekly periods in use",
+      lowRoomsTitle: "Least used rooms",
+      lowRoomsHint: "among rooms that have classes",
+      unusedTitle: "Not in use",
+      unusedCount: "{n} rooms without classes",
+      allUsed: "All rooms are in use",
+      allRoomsTitle: "All rooms",
+      searchPh: "Search: 3/303, informatics…",
+      allTypes: "All types",
+      th: { room: "Room", kind: "Type", load: "Utilisation", perWeek: "Classes/wk", lk: "Lect.", pr: "Pract.", lb: "Lab", groups: "Groups", teachers: "Teachers" },
+      roomTableNote: "Click a room to see its weekly map.",
+      nothingFound: "Nothing found",
+      noData: "No data",
+      buildingsTitle: "Building utilisation",
+      buildingsHint: "% of periods in use across the building's rooms",
+      buildingsTable: "Buildings in numbers",
+      bth: { name: "Building", rooms: "Rooms", used: "In use", perWeek: "Classes/wk", load: "Utilisation", usedLoad: "Utilisation of used rooms" },
+      topTeachersTitle: "Most classes",
+      topTeachersHint: "classes per week (in rooms)",
+      distTitle: "Workload distribution",
+      howManyTeachers: "number of teachers",
+      topGroupsTitle: "Busiest groups",
+      groupDistTitle: "Group workload distribution",
+      howManyGroups: "number of groups",
+      subjectsTitle: "Most frequent courses",
+      freeTitle: "Find a free room",
+      now: "Now",
+      noFree: "No free rooms",
+      teacherDoubleTitle: "Teacher booked in two rooms at once",
+      teacherDoubleHint: "possible timetable errors",
+      conflictsTitle: "Different classes in one room at the same time",
+      notFound: "None found",
+      noConflicts: "None found — rooms only host shared lectures or subgroups of the same class at once.",
+      footer: "© 2026 ESA · Samat Adylovich Erkebaev · Data: public section of portal.oshtu.kg · Unofficial service",
+      footInfo: "OshTU data collected {newest} (oldest room — {oldest}). Updates automatically every 6 hours.",
+
+      days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+      daysFull: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      pairShort: "P{n}",
+      pairFull: "period {n}",
+      week: { top: "upper week", bottom: "lower week" },
+      weekLetter: { top: "U", bottom: "L" },
+      semAutumn: "autumn semester",
+      semSpring: "spring semester",
+      scopeAll: "all buildings",
+      scopeOne: "building {name}",
+      weekScope: { both: "average of upper and lower weeks", top: "upper week", bottom: "lower week" },
+
+      kind: {
+        lecture: ["Lecture halls", "over 60% lectures"],
+        practice: ["Seminar rooms", "mostly practical classes"],
+        lab: ["Laboratories", "40%+ lab work"],
+        computer: ["Computer labs", "estimate: computing, programming, databases…"],
+        mixed: ["Mixed use", "various class types"],
+        unused: ["Not in use", "no classes in the timetable"],
+      },
+      kindFilter: { computer: "Computer labs (estimate)" },
+      ltype: { лк: "Lectures", пр: "Practicals", лб: "Labs", се: "Seminars", "": "Untyped" },
+      donutRooms: "rooms",
+      donutRoomsShort: "rooms",
+      donutPairs: "classes per week",
+      donutPairsShort: "classes",
+
+      kpi: {
+        rooms: "Rooms", roomsSub: "{used} in use, {unused} idle",
+        load: "Average utilisation", loadSub: "of used rooms; all rooms — {all}%",
+        pairs: "Classes per week", pairsSub: "{n} courses",
+        peak: "Peak", peakSub: "{n}% of rooms busy",
+        teachers: "Teachers", teachersSub: "teaching in rooms",
+        groups: "Groups", groupsSub: "with classes in rooms",
+      },
+      ins: {
+        peak: "Peak occupancy is <b>{day}, {pair}</b>: <b>{share}%</b> of rooms are busy. The busiest day is <b>{busiest}</b>.",
+        saturday: "Saturday is almost free: it has only <b>{share}%</b> of classes — the main spare capacity.",
+        lastPair: "Period 6 (15:50) runs at <b>{share}%</b> of the peak — late slots are underused.",
+        unused: "<b>{unused}</b> of {rooms} rooms aren't used in the timetable, and used rooms average <b>{load}%</b> utilisation (≈{slots} of 36 periods a week).",
+        types: "Practicals are <b>{pr}%</b> of classes, lectures <b>{lk}%</b>, labs <b>{lb}%</b>.",
+        topRoom: "The busiest room is <b>{room}</b> ({load}%, {pairs} a week).",
+        topBuilding: "The most heavily used building is <b>{name}</b> — {load}%.",
+        doubles: "Found <b>{n}</b> {cases} where a teacher is booked in two rooms at once — worth checking (Clashes tab).",
+      },
+      cases: ["case", "cases"],
+      pairWord: ["class", "classes"],
+      roomTip: "utilisation {load}% · {pairs} classes/wk",
+      roomTipTypes: "lect. {lk} · pract. {pr} · lab {lb}",
+      heatTip: "{share}% of rooms busy",
+      pairsCount: "{n} classes",
+      buildingTip: "{rooms} rooms, {used} in use<br>{pairs} classes per week<br>utilisation {load}% (used rooms — {usedLoad}%)",
+      roomsShort: "{n} rooms",
+      dist: ["up to 4", "4–8", "8–12", "12–16", "16–20", "over 20"],
+      distTip: "{label} classes per week",
+      distAvg: "{avg} classes per week on average. Only classes with a room in the timetable are counted.",
+      freeSummary: "{day}, {pair} ({time}), {week}: {n} {rooms} free.",
+      freeRooms: ["teaching room", "teaching rooms"],
+      issueWhen: "{who} — {day}, {pair}, {week}",
+      issueRooms: "Rooms: {list}",
+      roomTitle: "Room {name}",
+      noLessons: "no classes",
+      dLoad: "utilisation", dPairs: "classes per week", dGroups: "groups", dTeachers: "teachers",
+      dNote: "U — upper week, L — lower week. Hover a cell to see the class. Lectures {lk}, practicals {pr}, labs {lb} (classes in the selected weeks).",
+      cellFree: "free",
+      ago: { now: "just now", min: "{n} min ago", hour: "{n} h ago" },
+    },
+  };
+
+  const LANGS = ["ru", "ky", "en"];
+  const KEY = "oa.lang";
+
+  function detect() {
+    try {
+      const saved = localStorage.getItem(KEY);
+      if (LANGS.includes(saved)) return saved;
+    } catch {}
+    const nav = (navigator.languages || [navigator.language || "ru"]).map((l) => String(l).toLowerCase());
+    for (const l of nav) {
+      if (l.startsWith("ky")) return "ky";
+      if (l.startsWith("ru")) return "ru";
+      if (l.startsWith("en")) return "en";
+    }
+    return "ru";
+  }
+
+  let lang = detect();
+
+  function get(path, d = DICT[lang]) {
+    return path.split(".").reduce((o, k) => (o == null ? o : o[k]), d);
+  }
+
+  /** t("kpi.rooms", {n: 5}) — строка с подстановкой {переменных}; если ключа нет — берём русский. */
+  function t(path, vars) {
+    let s = get(path);
+    if (s == null) s = get(path, DICT.ru);
+    if (typeof s !== "string") return s;
+    return vars ? s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? vars[k] : "")) : s;
+  }
+
+  /** Форма слова для числа: ru [1,2-4,5+], en [1, other], ky [одна форма]. */
+  function plural(n, forms) {
+    n = Math.abs(Math.round(n));
+    if (lang === "ru") {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return forms[0];
+      if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return forms[1];
+      return forms[2];
+    }
+    if (lang === "en") return n === 1 ? forms[0] : forms[1] || forms[0];
+    return forms[0];
+  }
+
+  /** Перевести статическую разметку: data-i18n (текст), data-i18n-ph (placeholder), data-i18n-title (подсказка). */
+  function apply(rootEl = document) {
+    document.documentElement.lang = lang;
+    document.title = t("title");
+    rootEl.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = t(el.dataset.i18n)));
+    rootEl.querySelectorAll("[data-i18n-ph]").forEach((el) => el.setAttribute("placeholder", t(el.dataset.i18nPh)));
+    rootEl.querySelectorAll("[data-i18n-title]").forEach((el) => el.setAttribute("title", t(el.dataset.i18nTitle)));
+  }
+
+  function setLang(l) {
+    if (!LANGS.includes(l)) return;
+    lang = l;
+    try { localStorage.setItem(KEY, l); } catch {}
+    apply();
+  }
+
+  root.I18N = { t, plural, apply, setLang, LANGS, DICT, get lang() { return lang; }, locale: () => DICT[lang].locale };
+})(window);
