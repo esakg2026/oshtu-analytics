@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Аналитика ОшТУ</title>
+  <meta name="description" content="Загрузка аудиторий, корпусов и преподавателей ОшТУ: диаграммы, тепловые карты, рейтинги." />
+  <meta name="author" content="ESA — Эркебаев Самат Адылович" />
+  <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-row">
+      <div class="brand">
+        <img src="icon.svg" alt="" width="34" height="34" />
+        <div>
+          <h1>Аналитика ОшТУ</h1>
+          <p id="subtitle" class="muted">Загрузка аудиторного фонда</p>
+        </div>
+      </div>
+      <div class="filters">
+        <label class="f">
+          <span>Корпус</span>
+          <select id="fBuilding"><option value="">Все корпуса</option></select>
+        </label>
+        <div class="f">
+          <span>Неделя</span>
+          <div class="seg" id="fWeek">
+            <button data-v="both" class="active">Обе</button>
+            <button data-v="top">Верхняя</button>
+            <button data-v="bottom">Нижняя</button>
+          </div>
+        </div>
+        <button id="refresh" class="btn" title="Обновить данные">⟳</button>
+      </div>
+    </div>
+    <nav class="wrap tabs" id="nav">
+      <a href="#overview" class="active">Обзор</a>
+      <a href="#time">Время</a>
+      <a href="#rooms">Аудитории</a>
+      <a href="#buildings">Корпуса</a>
+      <a href="#teachers">Преподаватели</a>
+      <a href="#groups">Группы</a>
+      <a href="#free">Свободные</a>
+      <a href="#issues">Накладки</a>
+    </nav>
+  </header>
+
+  <main class="wrap" id="app">
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>Загружаю расписание всех аудиторий…</p>
+    </div>
+
+    <div id="content" hidden>
+      <!-- ===== ОБЗОР ===== -->
+      <section id="overview" class="sec">
+        <div class="kpis" id="kpis"></div>
+        <div class="card insights">
+          <h2>Главные выводы</h2>
+          <ul id="insights"></ul>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>Типы аудиторий</h2><span class="hint" title="Тип определяется по занятиям в аудитории за неделю. Компьютерные классы — оценка по названиям дисциплин (информатика, программирование, базы данных и т. п.): на сайте ОшТУ оснащение аудиторий не указано.">ⓘ как считается</span></div>
+            <div class="donut-wrap" id="roomKinds"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Виды занятий</h2><span class="hint" title="Пары в неделю по видам: лекции, практические, лабораторные. Поток нескольких групп в одной аудитории считается одной парой.">ⓘ как считается</span></div>
+            <div class="donut-wrap" id="lessonTypes"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ВРЕМЯ ===== -->
+      <section id="time" class="sec">
+        <div class="card">
+          <div class="card-head"><h2>Когда заняты аудитории</h2><span class="hint">% аудиторий, занятых в эту пару</span></div>
+          <div id="heatmap" class="heat"></div>
+          <div class="heat-legend" id="heatLegend"></div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>По дням недели</h2><span class="hint">пар в неделю</span></div>
+            <div id="byDay" class="bars"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>По номерам пар</h2><span class="hint">пар в неделю</span></div>
+            <div id="byPair" class="bars"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== АУДИТОРИИ ===== -->
+      <section id="rooms" class="sec">
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>Самые загруженные</h2><span class="hint">% занятых пар в неделю</span></div>
+            <div id="topRooms" class="bars"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Меньше всего используются</h2><span class="hint">среди тех, где есть занятия</span></div>
+            <div id="lowRooms" class="bars"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Не используются</h2><span class="hint" id="unusedCount"></span></div>
+          <div id="unused" class="chips"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Все аудитории</h2>
+            <div class="table-tools">
+              <input id="roomSearch" type="search" placeholder="Поиск: 3/303, информатика…" />
+              <select id="roomKindFilter">
+                <option value="">Все типы</option>
+                <option value="lecture">Лекционные</option>
+                <option value="practice">Практические</option>
+                <option value="lab">Лабораторные</option>
+                <option value="computer">Компьютерные (оценка)</option>
+                <option value="mixed">Смешанные</option>
+                <option value="unused">Не используются</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="roomTable">
+              <thead>
+                <tr>
+                  <th data-sort="label">Аудитория</th>
+                  <th data-sort="kind">Тип</th>
+                  <th data-sort="load" class="num">Загрузка</th>
+                  <th data-sort="perWeek" class="num">Пар/нед</th>
+                  <th data-sort="lk" class="num">Лекц.</th>
+                  <th data-sort="pr" class="num">Практ.</th>
+                  <th data-sort="lb" class="num">Лаб.</th>
+                  <th data-sort="groups" class="num">Групп</th>
+                  <th data-sort="teachers" class="num">Преп.</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="note">Нажми на аудиторию, чтобы увидеть её недельную карту.</p>
+        </div>
+      </section>
+
+      <!-- ===== КОРПУСА ===== -->
+      <section id="buildings" class="sec">
+        <div class="card">
+          <div class="card-head"><h2>Загрузка корпусов</h2><span class="hint">% занятых пар от всех аудиторий корпуса</span></div>
+          <div id="buildingBars" class="bars"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Корпуса в цифрах</h2></div>
+          <div class="table-wrap">
+            <table class="tbl" id="buildingTable">
+              <thead><tr><th>Корпус</th><th class="num">Аудиторий</th><th class="num">Используются</th><th class="num">Пар/нед</th><th class="num">Загрузка</th><th class="num">Загрузка используемых</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ПРЕПОДАВАТЕЛИ ===== -->
+      <section id="teachers" class="sec">
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>Больше всего пар</h2><span class="hint">пар в неделю (аудиторных)</span></div>
+            <div id="topTeachers" class="bars"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Распределение нагрузки</h2><span class="hint">сколько преподавателей</span></div>
+            <div id="teacherDist" class="bars"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ГРУППЫ ===== -->
+      <section id="groups" class="sec">
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>Самые загруженные группы</h2><span class="hint">пар в неделю</span></div>
+            <div id="topGroups" class="bars"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Распределение нагрузки групп</h2><span class="hint">сколько групп</span></div>
+            <div id="groupDist" class="bars"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Самые частые дисциплины</h2><span class="hint">пар в неделю</span></div>
+          <div id="topSubjects" class="bars"></div>
+        </div>
+      </section>
+
+      <!-- ===== СВОБОДНЫЕ ===== -->
+      <section id="free" class="sec">
+        <div class="card">
+          <div class="card-head"><h2>Найти свободную аудиторию</h2></div>
+          <div class="free-tools">
+            <select id="freeDay"></select>
+            <select id="freePair"></select>
+            <div class="seg" id="freeWeek">
+              <button data-v="top" class="active">Верхняя</button>
+              <button data-v="bottom">Нижняя</button>
+            </div>
+            <button id="freeNow" class="btn">Сейчас</button>
+          </div>
+          <p class="note" id="freeSummary"></p>
+          <div id="freeList"></div>
+        </div>
+      </section>
+
+      <!-- ===== НАКЛАДКИ ===== -->
+      <section id="issues" class="sec">
+        <div class="card">
+          <div class="card-head"><h2>Преподаватель в двух аудиториях одновременно</h2><span class="hint">возможные ошибки расписания</span></div>
+          <div id="teacherDouble"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Разные занятия в одной аудитории в одно время</h2></div>
+          <div id="roomConflicts"></div>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <p id="footInfo"></p>
+        <p>© 2026 ESA · Эркебаев Самат Адылович · Данные: открытый раздел portal.oshtu.kg · Неофициальный сервис</p>
+      </footer>
+    </div>
+  </main>
+
+  <dialog id="roomDialog" class="dlg">
+    <div class="dlg-head">
+      <div>
+        <h2 id="dTitle"></h2>
+        <p id="dSub" class="muted"></p>
+      </div>
+      <button class="btn" data-close>✕</button>
+    </div>
+    <div id="dBody"></div>
+  </dialog>
+
+  <div id="tip" class="tip" role="tooltip"></div>
+
+  <script src="config.js"></script>
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
