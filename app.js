@@ -573,6 +573,10 @@
   initFree();
   window.OAuth.check().then((s) => (s ? showDash(s) : showLogin()));
   if ("serviceWorker" in navigator && location.protocol.startsWith("http") && location.hostname !== "127.0.0.1" && location.hostname !== "localhost") {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    // пришла новая версия программы — один раз перезагрузить страницу
+    const hadSw = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadSw && !reloaded) { reloaded = true; location.reload(); } });
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
   }
 })();

@@ -1,5 +1,5 @@
 // Офлайн: страница открывается из кэша, данные — из localStorage приложения.
-const CACHE = "oa-shell-v5";
+const CACHE = "oa-shell-v6";
 const SHELL = ["./", "index.html", "style.css", "config.js", "auth.js", "i18n.js", "cam-i18n.js", "engine.js", "app.js", "cameras.html", "cameras.css", "cameras.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -17,10 +17,10 @@ self.addEventListener("fetch", (e) => {
   const key = req.mode === "navigate" ? page : req;
   e.respondWith(
     caches.open(CACHE).then(async (c) => {
-      const hit = await c.match(key, { ignoreSearch: true });
-      const net = fetch(req).then((res) => { if (res.ok && res.type === "basic") c.put(key, res.clone()); return res; }).catch(() => null);
-      if (hit) { e.waitUntil(net); return hit; }
-      return (await net) || new Response("Офлайн", { status: 503 });
+      // сначала сеть (всегда свежая версия со входом), кэш — только без интернета
+      const res = await fetch(req, { cache: "no-cache" }).catch(() => null);
+      if (res && res.ok) { if (res.type === "basic") c.put(key, res.clone()); return res; }
+      return (await c.match(key, { ignoreSearch: true })) || res || new Response("Офлайн", { status: 503 });
     }),
   );
 });
