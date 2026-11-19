@@ -1,33 +1,36 @@
-// «Наблюдение с камер»: вход администратора, подсчёт людей (TensorFlow.js COCO-SSD прямо в браузере),
-// привязка к паре по расписанию ОшТУ, настройка камер и аналитика «план vs факт».
-// Видео не отправляется и не сохраняется — в базу уходят только поминутные числа.
+// «Наблюдение с камер» — часть «Аналитики ОшТУ» (вход общий, см. auth.js).
+// • Сам находит все камеры этого компьютера и регистрирует их в базе.
+// • Работает круглосуточно, но считает людей и отправляет данные ТОЛЬКО во время пар (Пн–Сб, 1–6 пара).
+//   Вне пар распознавание не запускается вообще; база тоже отклоняет минуты вне пар.
+// • Видео не отправляется и не сохраняется — только поминутные числа.
 (function () {
   "use strict";
   const I = window.I18N;
   const t = I.t;
   const OA = window.OA;
+  const A = window.OAuth;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const fmt1 = (n) => (Math.round(n * 10) / 10).toLocaleString(I.locale());
 
   const TIMES = { 1: ["08:00", "09:20"], 2: ["09:30", "10:50"], 3: ["11:20", "12:40"], 4: ["12:50", "14:10"], 5: ["14:20", "15:40"], 6: ["15:50", "17:10"] };
   const WEEK_ANCHOR = new Date(2026, 10, 9); // неделя 9–14 ноября 2026 — верхняя
-  const HELD_THRESHOLD = 3; // пара «состоялась», если в среднем ≥ 3 человек
-  const DETECT_EVERY_MS = 1500;
-  const AUTH_KEY = "oa.admin";
+  const HELD_THRESHOLD = 3;
+  const TICK_MS = 700;           // шаг планировщика: каждую камеру по очереди
+  const PER_CAMERA_MS = 1500;    // одну камеру — не чаще раза в 1,5 с
   const QUEUE_KEY = "oa.camQueue";
+  const HOST_KEY = "oa.hostKey";
+  const HOST_NAME = "oa.hostName";
 
   const S = {
-    token: null, login: null, cams: [], flat: null, byRoom: new Map(),
-    model: null, modelLoading: null, running: false, timer: null, stream: null, cam: null,
-    recent: [], minuteKey: null, minuteSamples: [], sent: 0, period: "today",
+    session: null, cams: [], flat: null, byRoom: new Map(), model: null, modelLoading: null,
+    tiles: new Map(), // camId → {cam, video, img, canvas, box, countEl, planEl, matchEl, stream, lastRun, samples, minuteKey, recent, deviceId}
+    rr: 0, sent: 0, period: "today", wake: null, scanning: false,
   };
 
-  // ================= хранилище =================
   const store = {
     get(k, d = null) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
-    del(k) { try { localStorage.removeItem(k); } catch {} },
   };
 
   function toast(msg) {
@@ -38,123 +41,65 @@
     toast.t = setTimeout(() => el.classList.remove("show"), 2600);
   }
 
-  // ================= API =================
-  function apiBases() {
-    const { SUPABASE_URL, PROXY } = window.APP_CONFIG;
-    const deployed = /^https?:$/.test(location.protocol) && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-    return [...(deployed ? [`${location.origin}/sb`] : []), PROXY, SUPABASE_URL];
-  }
-
-  class ApiError extends Error {}
-
-  // Повтор через другой адрес — только при сетевой ошибке; ответ сервера (неверный пароль и т. п.) не повторяем.
-  async function rpc(name, body) {
-    let last;
-    for (const base of apiBases()) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 30000);
-        const r = await fetch(`${base}/rest/v1/rpc/${name}`, {
-          method: "POST",
-          headers: { apikey: window.APP_CONFIG.SUPABASE_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: ctrl.signal,
-        });
-        clearTimeout(timer);
-        const text = await r.text();
-        const data = text ? JSON.parse(text) : null;
-        if (!r.ok) {
-          if (r.status >= 500) throw new Error("HTTP " + r.status);
-          throw new ApiError((data && data.message) || "HTTP " + r.status);
-        }
-        return data;
-      } catch (e) {
-        if (e instanceof ApiError) {
-          if (/вход администратора/i.test(e.message)) logoutLocal();
-          throw e;
-        }
-        last = e;
-      }
-    }
-    throw last;
-  }
-
-  // ================= вход =================
-  function showLogin() {
-    $("appView").hidden = true;
-    $("loginView").hidden = false;
-    $("lLogin").focus();
-  }
-
-  function logoutLocal() {
-    stopWatch();
-    S.token = null;
-    store.del(AUTH_KEY);
-    showLogin();
-  }
-
-  async function boot() {
-    const saved = store.get(AUTH_KEY);
-    if (saved && saved.token && new Date(saved.expires_at) > new Date()) {
-      try {
-        const r = await rpc("oshtu_admin_check", { p_token: saved.token });
-        if (r && r.ok) return enter(saved.token, r.login);
-      } catch (e) {
-        // нет связи — пускаем с сохранённой сессией, сервер всё равно проверит токен
-        if (!(e instanceof ApiError)) return enter(saved.token, saved.login);
-      }
-    }
-    store.del(AUTH_KEY);
-    showLogin();
-  }
-
-  $("loginForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const btn = $("loginBtn");
-    btn.disabled = true;
-    $("loginErr").hidden = true;
-    try {
-      const r = await rpc("oshtu_admin_login", { p_login: $("lLogin").value.trim(), p_password: $("lPass").value });
-      store.set(AUTH_KEY, r);
-      $("lPass").value = "";
-      enter(r.token, r.login);
-    } catch (err) {
-      $("loginErr").textContent = err instanceof ApiError ? (/попыток/.test(err.message) ? err.message : t("cam.badLogin")) : String(err.message || err);
-      $("loginErr").hidden = false;
-    } finally {
-      btn.disabled = false;
-    }
+  const rpc = (name, body) => A.rpc(name, body).catch((e) => {
+    if (e instanceof A.ApiError && /вход администратора/i.test(e.message)) location.replace("./");
+    throw e;
   });
+  const token = () => S.session.token;
 
-  async function enter(token, login) {
-    S.token = token;
-    S.login = login;
-    $("who").textContent = login;
-    $("loginView").hidden = true;
-    $("appView").hidden = false;
-    await loadDataset();
-    await loadCams();
-    setTab(location.hash.replace("#", "") || "watch");
-    preloadModel();
+  // ---------- компьютер ----------
+  function hostKey() {
+    let k = store.get(HOST_KEY);
+    if (!k) {
+      k = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9-]/g, "");
+      store.set(HOST_KEY, k);
+    }
+    return k;
+  }
+  const hostName = () => store.get(HOST_NAME) || `PC-${hostKey().slice(0, 4).toUpperCase()}`;
+
+  // ---------- время и расписание ОшТУ ----------
+  const toMin = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+  const isoDay = (d) => ((d.getDay() + 6) % 7) + 1;
+
+  /** Номер пары в момент d (Пн–Сб) или null — та же проверка, что и в базе. */
+  function pairAt(d) {
+    if (isoDay(d) > 6) return null;
+    const m = d.getHours() * 60 + d.getMinutes();
+    for (const [p, [a, b]] of Object.entries(TIMES)) if (m >= toMin(a) && m < toMin(b)) return Number(p);
+    return null;
   }
 
-  $("logout").onclick = async () => {
-    try { await rpc("oshtu_admin_logout", { p_token: S.token }); } catch {}
-    logoutLocal();
-  };
+  function nextPairStart(d) {
+    for (let i = 0; i < 8; i++) {
+      const day = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i);
+      if (isoDay(day) > 6) continue;
+      for (const [p, [a]] of Object.entries(TIMES)) {
+        const [h, m] = a.split(":").map(Number);
+        const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
+        if (at > d) return { at, pair: Number(p) };
+      }
+    }
+    return null;
+  }
 
-  // ================= данные ОшТУ =================
+  function weekType(d) {
+    const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+    const w = Math.round((mon - WEEK_ANCHOR) / 6048e5);
+    return ((w % 2) + 2) % 2 === 0 ? "top" : "bottom";
+  }
+
+  function scheduleAt(roomId, d) {
+    const day = isoDay(d), pair = pairAt(d), week = weekType(d);
+    const lessons = roomId && pair ? (S.byRoom.get(roomId) || []).filter((l) => l.day === day && l.pair === pair && l.week === week) : [];
+    return { day, pair, week, lessons };
+  }
+
   async function loadDataset() {
     let ds = store.get("oa.dataset.v1");
-    if (!ds) {
-      try {
-        ds = await rpc("oshtu_room_dataset", {});
-        store.set("oa.dataset.v1", ds);
-      } catch { ds = { rooms: [] }; }
-    } else {
-      rpc("oshtu_room_dataset", {}).then((fresh) => { store.set("oa.dataset.v1", fresh); useDataset(fresh); }).catch(() => {});
-    }
-    useDataset(ds);
+    const fresh = rpc("oshtu_room_dataset", {}).then((x) => { store.set("oa.dataset.v1", x); useDataset(x); }).catch(() => {});
+    if (ds) useDataset(ds);
+    else { await fresh; if (!S.flat) useDataset({ rooms: [] }); }
   }
 
   function useDataset(ds) {
@@ -165,241 +110,256 @@
       S.byRoom.get(l.roomId).push(l);
     }
   }
-
   const roomById = (id) => (S.flat ? S.flat.rooms.find((r) => r.id === id) : null);
-  const toMin = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
 
-  function weekType(d) {
-    const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
-    const w = Math.round((mon - WEEK_ANCHOR) / 6048e5);
-    return ((w % 2) + 2) % 2 === 0 ? "top" : "bottom";
-  }
-
-  /** Что по расписанию ОшТУ в этой аудитории в момент d. */
-  function scheduleAt(roomId, d) {
-    const day = ((d.getDay() + 6) % 7) + 1;
-    const m = d.getHours() * 60 + d.getMinutes();
-    let pair = null;
-    for (const [p, [a, b]] of Object.entries(TIMES)) if (m >= toMin(a) && m < toMin(b)) pair = Number(p);
-    const week = weekType(d);
-    const lessons = day <= 6 && pair ? (S.byRoom.get(roomId) || []).filter((l) => l.day === day && l.pair === pair && l.week === week) : [];
-    return { day, pair, week, lessons };
-  }
-
-  // ================= камеры (список) =================
-  async function loadCams() {
-    S.cams = (await rpc("oshtu_cam_list", { p_token: S.token })) || [];
-    fillCamSelect();
-    renderSetupTable();
-  }
-
-  function fillCamSelect() {
-    const sel = $("wCamera");
-    const cur = sel.value;
-    const cams = S.cams.filter((c) => c.enabled);
-    sel.innerHTML = cams.map((c) => `<option value="${c.id}">${esc(c.name)} · ${esc(c.room || "")}</option>`).join("");
-    if (cams.some((c) => String(c.id) === cur)) sel.value = cur;
-    $("wNoCams").hidden = cams.length > 0;
-    $("wStart").disabled = cams.length === 0;
-    onCamChange();
-  }
-
-  function selectedCam() {
-    return S.cams.find((c) => String(c.id) === $("wCamera").value) || null;
-  }
-
-  function onCamChange() {
-    const cam = selectedCam();
-    $("wFileBtn").hidden = !cam || cam.source_type !== "file";
-    $("wRoom").textContent = cam ? cam.room || "—" : "—";
-    updatePanel();
-  }
-  $("wCamera").onchange = () => { stopWatch(); onCamChange(); };
-
-  // ================= модель =================
+  // ---------- модель ----------
   function preloadModel() {
     if (S.model || S.modelLoading) return S.modelLoading;
     $("wModel").textContent = t("cam.modelLoading");
     S.modelLoading = (async () => {
-      for (let i = 0; i < 100 && !(window.cocoSsd && window.tf); i++) await new Promise((r) => setTimeout(r, 100));
+      for (let i = 0; i < 300 && !(window.cocoSsd && window.tf); i++) await new Promise((r) => setTimeout(r, 100));
       if (!window.cocoSsd) throw new Error("model scripts not loaded");
-      // облегчённая модель: ~5× меньше и грузится за секунды; на фото аудиторий считает почти так же, как полная
       S.model = await window.cocoSsd.load({ base: "lite_mobilenet_v2" });
       $("wModel").textContent = t("cam.modelReady");
       return S.model;
     })().catch((e) => {
       S.modelLoading = null;
       $("wModel").textContent = String(e.message || e);
-      throw e;
+      setTimeout(preloadModel, 30000); // повторим позже — работаем круглосуточно
     });
     return S.modelLoading;
   }
 
-  // ================= наблюдение =================
-  const video = $("wVideo"), img = $("wImg"), canvas = $("wCanvas");
-
-  function showErr(msg) {
-    $("wErr").textContent = msg;
-    $("wErr").hidden = !msg;
-  }
-
-  async function findDevice(label) {
-    // названия камер видны только после разрешения
-    const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
-    tmp.getTracks().forEach((tr) => tr.stop());
-    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
-    return devs.find((d) => d.label === label) || devs.find((d) => label && d.label.includes(label)) || devs[0] || null;
-  }
-
-  async function startWatch() {
-    const cam = selectedCam();
-    if (!cam) return;
-    showErr("");
-    stopWatch();
-    S.cam = cam;
+  // ================= автопоиск камер =================
+  /** Камеры компьютера с настоящими названиями. Без разрешения браузер названий не даёт — тогда ничего не регистрируем. */
+  async function listVideoInputs() {
     try {
-      await preloadModel();
-      if (cam.source_type === "device") {
-        const dev = await findDevice(cam.device_label);
-        S.stream = await navigator.mediaDevices.getUserMedia({
-          video: dev ? { deviceId: { exact: dev.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : true,
-        });
-        video.srcObject = S.stream;
-        await video.play();
-        showSource("video");
-      } else if (cam.source_type === "url") {
-        if (location.protocol === "https:" && /^http:/i.test(cam.source)) throw Object.assign(new Error("mixed"), { cors: true });
-        img.crossOrigin = "anonymous";
-        await new Promise((res, rej) => {
-          img.onload = res;
-          img.onerror = () => rej(Object.assign(new Error("load"), { cors: true }));
-          img.src = cam.source;
-        });
-        showSource("img");
-      } else {
-        if (!video.src) {
-          $("wFile").click();
-          return;
-        }
-        video.loop = true;
-        await video.play();
-        showSource("video");
-      }
-      S.running = true;
-      $("wStart").textContent = t("cam.stop");
-      $("wEmpty").hidden = true;
-      loop();
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
+      tmp.getTracks().forEach((tr) => tr.stop());
+      $("wErr").hidden = true;
     } catch (e) {
-      stopWatch();
-      showErr(e.cors ? t("cam.errCors") : t("cam.errCamera", { e: e.message || e.name || e }));
+      $("wErr").textContent = `${t("cam.allowCam")} (${e.name || e.message})`;
+      $("wErr").hidden = false;
+      return null;
+    }
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput" && d.label);
+    return devs.map((d) => ({ deviceId: d.deviceId, label: d.label }));
+  }
+
+  async function scan() {
+    if (S.scanning) return;
+    S.scanning = true;
+    try {
+      const devs = await listVideoInputs();
+      if (!devs) { await reloadCams(); return; }
+      S.devices = devs;
+      S.cams = (await rpc("oshtu_cam_register", { p_token: token(), p_host_key: hostKey(), p_host_name: hostName(), p_devices: devs.map((d) => ({ label: d.label })) })) || [];
+      $("wInfo").textContent = devs.length ? t("cam.detected", { n: devs.length }) : t("cam.noDevices");
+      syncTiles();
+      renderSetupTable();
+    } catch (e) {
+      toast(e.message || String(e));
+    } finally {
+      S.scanning = false;
     }
   }
 
-  function showSource(kind) {
-    video.hidden = kind !== "video";
-    img.hidden = kind !== "img";
+  async function reloadCams() {
+    S.cams = (await rpc("oshtu_cam_list", { p_token: token() })) || [];
+    syncTiles();
+    renderSetupTable();
   }
 
-  function stopWatch() {
-    S.running = false;
-    clearTimeout(S.timer);
-    flushMinute(true);
-    if (S.stream) S.stream.getTracks().forEach((tr) => tr.stop());
-    S.stream = null;
-    if (video.srcObject) video.srcObject = null;
-    video.pause();
-    img.removeAttribute("src");
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    $("wStart").textContent = t("cam.start");
-    $("wEmpty").hidden = false;
-    S.recent = [];
+  // ================= плитки камер =================
+  const myCams = () => S.cams.filter((c) => c.host_key === hostKey() && c.enabled && (c.source_type === "device" || c.source_type === "url"));
+
+  function syncTiles() {
+    const want = new Map(myCams().map((c) => [c.id, c]));
+    for (const [id, tile] of S.tiles) if (!want.has(id)) { closeTile(tile); S.tiles.delete(id); }
+    for (const [id, cam] of want) {
+      const tile = S.tiles.get(id);
+      if (tile) { tile.cam = cam; renderTileHead(tile); } else S.tiles.set(id, openTile(cam));
+    }
+    $("grid").querySelectorAll(".tile").forEach((el) => { if (!S.tiles.has(Number(el.dataset.id))) el.remove(); });
   }
 
-  $("wStart").onclick = () => (S.running ? stopWatch() : startWatch());
-  $("wFileBtn").onclick = () => $("wFile").click();
-  $("wFile").onchange = () => {
-    const f = $("wFile").files[0];
-    if (!f) return;
-    if (video.src) URL.revokeObjectURL(video.src);
-    video.srcObject = null;
-    video.src = URL.createObjectURL(f);
-    startWatch();
-  };
-  $("wBlur").onchange = () => $("videoBox").classList.toggle("blur", $("wBlur").checked);
+  function openTile(cam) {
+    const el = document.createElement("div");
+    el.className = "card tile";
+    el.dataset.id = cam.id;
+    el.innerHTML = `<div class="tile-head"><b></b><span></span></div>
+      <div class="video-box${$("wBlur").checked ? " blur" : ""}"><video playsinline muted autoplay></video><img alt="" hidden /><canvas></canvas>
+      <div class="tile-count idle">—</div><div class="video-empty">…</div></div>
+      <div class="tile-plan"></div><div class="match" hidden></div>`;
+    $("grid").appendChild(el);
+    const tile = {
+      cam, el, video: el.querySelector("video"), img: el.querySelector("img"), canvas: el.querySelector("canvas"),
+      box: el.querySelector(".video-box"), countEl: el.querySelector(".tile-count"), emptyEl: el.querySelector(".video-empty"),
+      planEl: el.querySelector(".tile-plan"), matchEl: el.querySelector(".match"),
+      stream: null, lastRun: 0, samples: [], minuteKey: null, recent: [], ready: false, busy: false,
+    };
+    renderTileHead(tile);
+    startSource(tile);
+    return tile;
+  }
 
-  async function loop() {
-    if (!S.running) return;
-    const src = video.hidden ? img : video;
-    const ready = video.hidden ? img.complete && img.naturalWidth : video.readyState >= 2 && video.videoWidth;
-    if (ready) {
-      try {
-        const preds = await S.model.detect(src, 100, 0.4);
-        const people = preds.filter((p) => p.class === "person");
-        draw(src, people);
-        addSample(people.length);
-      } catch (e) {
-        stopWatch();
-        showErr(/tainted|SecurityError|cross-origin/i.test(String(e)) ? t("cam.errCors") : t("cam.errCamera", { e: e.message || e }));
+  function renderTileHead(tile) {
+    const c = tile.cam;
+    tile.el.querySelector(".tile-head b").textContent = c.room ? `${t("cam.room")} ${c.room}` : t("cam.unassigned");
+    tile.el.querySelector(".tile-head span").textContent = c.name;
+    tile.el.classList.toggle("warn-room", !c.room_id);
+  }
+
+  async function startSource(tile) {
+    const c = tile.cam;
+    tile.ready = false;
+    tile.emptyEl.hidden = false;
+    tile.emptyEl.textContent = "…";
+    try {
+      if (c.source_type === "device") {
+        const dev = (S.devices || []).find((d) => d.label === c.device_label);
+        if (!dev) throw new Error("not connected");
+        tile.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: dev.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+        tile.video.srcObject = tile.stream;
+        tile.stream.getVideoTracks().forEach((tr) => tr.addEventListener("ended", () => reconnect(tile)));
+        await tile.video.play().catch(() => {});
+        tile.video.hidden = false;
+        tile.img.hidden = true;
+      } else {
+        tile.img.crossOrigin = "anonymous";
+        await new Promise((res, rej) => { tile.img.onload = res; tile.img.onerror = rej; tile.img.src = c.source; });
+        tile.img.hidden = false;
+        tile.video.hidden = true;
+      }
+      tile.ready = true;
+      tile.emptyEl.hidden = true;
+    } catch (e) {
+      tile.emptyEl.textContent = c.source_type === "url" ? t("cam.errCors") : t("cam.reconnect");
+      setTimeout(() => S.tiles.get(c.id) === tile && startSource(tile), 15000);
+    }
+  }
+
+  function reconnect(tile) {
+    tile.ready = false;
+    if (tile.stream) tile.stream.getTracks().forEach((tr) => tr.stop());
+    tile.stream = null;
+    setTimeout(() => S.tiles.get(tile.cam.id) === tile && startSource(tile), 5000);
+  }
+
+  function closeTile(tile) {
+    flushMinute(tile);
+    if (tile.stream) tile.stream.getTracks().forEach((tr) => tr.stop());
+    tile.el.remove();
+  }
+
+  // ================= планировщик: круглосуточно, подсчёт только на парах =================
+  async function tick() {
+    try {
+      const now = new Date();
+      const pair = pairAt(now);
+      renderPairStatus(now, pair);
+      const tiles = [...S.tiles.values()];
+      if (!pair) {
+        // вне пары: распознавание не запускаем, недописанные минуты закрываем
+        for (const tile of tiles) { flushMinute(tile); idleTile(tile); }
         return;
       }
+      if (!S.model || !tiles.length) return;
+      // одна камера за шаг — по кругу
+      for (let k = 0; k < tiles.length; k++) {
+        const tile = tiles[(S.rr + k) % tiles.length];
+        if (!tile.ready || tile.busy || !tile.cam.room_id || Date.now() - tile.lastRun < PER_CAMERA_MS) continue;
+        S.rr = (S.rr + k + 1) % tiles.length;
+        await detect(tile, now);
+        break;
+      }
+      for (const tile of tiles) if (!tile.cam.room_id) idleTile(tile, t("cam.unassigned"));
+    } finally {
+      setTimeout(tick, TICK_MS);
     }
-    S.timer = setTimeout(loop, DETECT_EVERY_MS);
   }
 
-  function draw(src, people) {
-    const box = $("videoBox");
-    const W = box.clientWidth, H = box.clientHeight;
-    const dpr = window.devicePixelRatio || 1;
-    if (canvas.width !== W * dpr) { canvas.width = W * dpr; canvas.height = H * dpr; }
-    const ctx = canvas.getContext("2d");
+  function idleTile(tile, text) {
+    tile.countEl.classList.add("idle");
+    tile.countEl.textContent = text || t("cam.outside");
+    tile.canvas.getContext("2d").clearRect(0, 0, tile.canvas.width, tile.canvas.height);
+    tile.matchEl.hidden = true;
+    renderTilePlan(tile, new Date());
+  }
+
+  async function detect(tile, now) {
+    tile.busy = true;
+    tile.lastRun = Date.now();
+    const src = tile.video.hidden ? tile.img : tile.video;
+    const ok = tile.video.hidden ? tile.img.naturalWidth : tile.video.readyState >= 2 && tile.video.videoWidth;
+    try {
+      if (!ok) return;
+      const preds = await S.model.detect(src, 100, 0.4);
+      const people = preds.filter((p) => p.class === "person");
+      draw(tile, src, people);
+      addSample(tile, people.length, now);
+    } catch (e) {
+      if (/tainted|SecurityError|cross-origin/i.test(String(e))) { tile.ready = false; tile.emptyEl.hidden = false; tile.emptyEl.textContent = t("cam.errCors"); }
+    } finally {
+      tile.busy = false;
+    }
+  }
+
+  function draw(tile, src, people) {
+    const W = tile.box.clientWidth, H = tile.box.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (tile.canvas.width !== W * dpr) { tile.canvas.width = W * dpr; tile.canvas.height = H * dpr; }
+    const ctx = tile.canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     if (!$("wBoxes").checked) return;
     const sw = src.videoWidth || src.naturalWidth, sh = src.videoHeight || src.naturalHeight;
     const k = Math.min(W / sw, H / sh), ox = (W - sw * k) / 2, oy = (H - sh * k) / 2;
     ctx.lineWidth = 2;
-    ctx.font = "600 12px system-ui, sans-serif";
-    people.forEach((p, i) => {
+    ctx.strokeStyle = "#1baf7a";
+    for (const p of people) {
       const [x, y, w, h] = p.bbox;
-      ctx.strokeStyle = "#1baf7a";
       ctx.strokeRect(ox + x * k, oy + y * k, w * k, h * k);
-      ctx.fillStyle = "#1baf7a";
-      const label = `${i + 1} · ${Math.round(p.score * 100)}%`;
-      ctx.fillRect(ox + x * k, oy + y * k - 16, ctx.measureText(label).width + 8, 16);
-      ctx.fillStyle = "#fff";
-      ctx.fillText(label, ox + x * k + 4, oy + y * k - 4);
-    });
+    }
   }
 
-  // ---------- подсчёт и поминутная отправка ----------
-  function addSample(n) {
-    S.recent.push(n);
-    if (S.recent.length > 3) S.recent.shift();
-    const sorted = [...S.recent].sort((a, b) => a - b);
-    const shown = sorted[Math.floor(sorted.length / 2)]; // медиана последних 3 кадров — меньше «мигания»
-    $("wCount").textContent = shown;
-    const now = new Date();
+  function addSample(tile, n, now) {
+    tile.recent.push(n);
+    if (tile.recent.length > 3) tile.recent.shift();
+    const shown = [...tile.recent].sort((a, b) => a - b)[Math.floor(tile.recent.length / 2)];
+    tile.countEl.classList.remove("idle");
+    tile.countEl.textContent = shown;
     const key = Math.floor(now.getTime() / 60000);
-    if (S.minuteKey !== null && key !== S.minuteKey) flushMinute(false);
-    S.minuteKey = key;
-    S.minuteSamples.push(n);
-    const avg = S.minuteSamples.reduce((s, v) => s + v, 0) / S.minuteSamples.length;
-    $("wAvg").textContent = fmt1(avg);
-    updatePanel(shown);
+    if (tile.minuteKey !== null && key !== tile.minuteKey) flushMinute(tile);
+    tile.minuteKey = key;
+    tile.samples.push(n);
+    renderTilePlan(tile, now, shown);
   }
 
-  function flushMinute(final) {
-    if (!S.minuteSamples.length || !S.cam) { S.minuteSamples = []; return; }
-    const samples = S.minuteSamples;
-    const ts = new Date(S.minuteKey * 60000);
-    S.minuteSamples = [];
-    if (S.cam.source_type === "file") return; // проверочное видео в аналитику не попадает
-    if (final && samples.length < 5) return; // неполная минута при остановке
-    const sc = scheduleAt(S.cam.room_id, ts);
+  function renderTilePlan(tile, now, peopleNow) {
+    const sc = scheduleAt(tile.cam.room_id, now);
+    tile.planEl.innerHTML = !tile.cam.room_id ? "" : sc.lessons.length
+      ? `<b>${esc(sc.lessons[0].subject)}</b> (${esc(sc.lessons[0].type)}.) <small>· ${esc([...new Set(sc.lessons.map((l) => l.group))].join(", "))} · ${esc(sc.lessons[0].teacher)}</small>`
+      : `<span class="muted">${esc(t("cam.plan"))}: ${esc(t("cam.noLesson"))}</span>`;
+    if (peopleNow == null || !sc.pair) return;
+    const busy = peopleNow >= HELD_THRESHOLD, planned = sc.lessons.length > 0;
+    const key = planned ? (busy ? "ok" : "empty") : busy ? "extra" : "free";
+    tile.matchEl.hidden = false;
+    tile.matchEl.textContent = t("cam.match")[key];
+    tile.matchEl.className = "match " + (key === "ok" ? "ok" : key === "free" ? "" : "warn");
+  }
+
+  // ---------- поминутная отправка (только минуты внутри пар) ----------
+  function flushMinute(tile) {
+    const samples = tile.samples;
+    tile.samples = [];
+    if (!samples.length || tile.minuteKey === null || !tile.cam.room_id) return;
+    const ts = new Date(tile.minuteKey * 60000);
+    tile.minuteKey = null;
+    if (!pairAt(ts) || samples.length < 3) return; // не пара или слишком мало кадров за минуту
+    const sc = scheduleAt(tile.cam.room_id, ts);
     const l = sc.lessons[0];
     const row = {
-      camera_id: S.cam.id, room_id: S.cam.room_id, ts: ts.toISOString(),
+      camera_id: tile.cam.id, room_id: tile.cam.room_id, ts: ts.toISOString(),
       people_avg: Math.round((samples.reduce((s, v) => s + v, 0) / samples.length) * 10) / 10,
       people_max: Math.max(...samples), samples: samples.length,
       day: sc.day, pair: sc.pair, week: sc.week, scheduled: sc.lessons.length > 0,
@@ -409,17 +369,17 @@
     };
     const q = store.get(QUEUE_KEY, []);
     q.push(row);
-    store.set(QUEUE_KEY, q.slice(-5000));
+    store.set(QUEUE_KEY, q.slice(-20000));
     sendQueue();
   }
 
   async function sendQueue() {
     const q = store.get(QUEUE_KEY, []);
-    if (!q.length || !S.token || sendQueue.busy) return renderSendInfo();
+    if (!q.length || sendQueue.busy) return renderSendInfo();
     sendQueue.busy = true;
     try {
       const batch = q.slice(0, 500);
-      await rpc("oshtu_cam_report", { p_token: S.token, p_rows: batch });
+      await rpc("oshtu_cam_report", { p_token: token(), p_rows: batch });
       store.set(QUEUE_KEY, store.get(QUEUE_KEY, []).slice(batch.length));
       S.sent += batch.length;
     } catch {} finally {
@@ -427,153 +387,131 @@
       renderSendInfo();
     }
   }
-  setInterval(sendQueue, 60000);
-  window.addEventListener("online", sendQueue);
 
   function renderSendInfo() {
     $("wSent").textContent = t("cam.sent", { n: S.sent });
     const q = store.get(QUEUE_KEY, []).length;
-    $("wQueue").textContent = q ? t("cam.queue", { n: q }) : "";
+    $("wQueue").textContent = q ? " · " + t("cam.queue", { n: q }) : "";
   }
 
-  // ---------- правая панель: расписание и сравнение ----------
-  function updatePanel(peopleNow) {
-    const cam = selectedCam();
-    if (!cam || !S.flat) return;
-    const now = new Date();
-    const sc = scheduleAt(cam.room_id, now);
-    const dayName = t("daysFull")[sc.day - 1] || t("cam.sunday");
-    $("wPair").textContent = sc.pair ? `${dayName}, ${t("cam.pairN", { n: sc.pair, from: TIMES[sc.pair][0], to: TIMES[sc.pair][1] })}` : `${dayName} · ${t("cam.breakTime")}`;
-    $("wPlan").innerHTML = sc.lessons.length
-      ? sc.lessons.slice(0, 4).map((l) => `<div class="lesson"><b>${esc(l.subject)}</b> (${esc(l.type)}.)<small>${esc([l.group, l.teacher].filter(Boolean).join(" · "))} · ${esc(t("week")[sc.week])}</small></div>`).join("")
-      : `<span class="muted">${esc(t("cam.noLesson"))}</span>`;
-    const m = $("wMatch");
-    if (peopleNow == null || !S.running) { m.textContent = ""; m.className = "match"; m.hidden = true; return; }
-    m.hidden = false;
-    const busy = peopleNow >= HELD_THRESHOLD;
-    const planned = sc.lessons.length > 0;
-    const key = planned ? (busy ? "ok" : "empty") : busy ? "extra" : "free";
-    m.textContent = t("cam.match")[key];
-    m.className = "match " + (key === "ok" ? "ok" : key === "free" ? "" : "warn");
+  function renderPairStatus(now, pair) {
+    const box = $("pairStatus");
+    if (pair) {
+      box.className = "card pair-status on";
+      $("psMain").textContent = t("cam.inPair", { pair: t("pairFull", { n: pair }), from: TIMES[pair][0], to: TIMES[pair][1] });
+      $("psSub").textContent = `${t("daysFull")[isoDay(now) - 1]} · ${t("week")[weekType(now)]}`;
+    } else {
+      box.className = "card pair-status off";
+      $("psMain").textContent = t("cam.outside");
+      const nx = nextPairStart(now);
+      const sameDay = nx && nx.at.toDateString() === now.toDateString();
+      $("psSub").textContent = nx
+        ? t("cam.nextPair", { when: `${sameDay ? "" : t("daysFull")[isoDay(nx.at) - 1] + ", "}${t("pairFull", { n: nx.pair })} · ${TIMES[nx.pair][0]}` })
+        : t("cam.noMorePairs");
+    }
   }
-  setInterval(() => updatePanel(S.running ? Number($("wCount").textContent) : null), 30000);
 
-  // ================= настройка камер =================
+  // ---------- экран не гаснет ----------
+  async function keepAwake() {
+    try {
+      if ("wakeLock" in navigator && document.visibilityState === "visible" && !S.wake) {
+        S.wake = await navigator.wakeLock.request("screen");
+        S.wake.addEventListener("release", () => (S.wake = null));
+      }
+    } catch {}
+  }
+
+  // ================= настройка: привязка камер к аудиториям =================
+  function roomOptions(selected) {
+    const groups = new Map();
+    for (const r of (S.flat ? S.flat.rooms : [])) {
+      if (!groups.has(r.building)) groups.set(r.building, []);
+      groups.get(r.building).push(r);
+    }
+    let html = `<option value="">${esc(t("cam.noRoom"))}</option>`;
+    for (const [b, rooms] of groups) {
+      html += `<optgroup label="${esc(/^\d+$/.test(b) ? t("buildingN", { n: b }) : b)}">` +
+        rooms.sort((x, y) => x.name.localeCompare(y.name, "ru", { numeric: true }))
+          .map((r) => `<option value="${r.id}"${r.id === selected ? " selected" : ""}>${esc(r.label)}</option>`).join("") + "</optgroup>";
+    }
+    return html;
+  }
+
   function renderSetupTable() {
     const tb = $("sTable").querySelector("tbody");
-    tb.innerHTML = S.cams.map((c) => `<tr class="${c.enabled ? "" : "off"}">
-      <td><b>${esc(c.name)}</b></td><td>${esc(c.room || "")}</td><td>${esc(t("cam.types")[c.source_type])}</td>
-      <td>${esc(c.source_type === "url" ? c.source : c.device_label || "")}</td><td>${c.enabled ? "✓" : "—"}</td>
+    const mine = hostKey();
+    tb.innerHTML = S.cams.map((c) => `<tr data-id="${c.id}" class="${c.host_key === mine ? "mine" : ""}">
+      <td><b>${esc(c.host_key === mine ? t("cam.thisPc") : c.host_name || t("cam.otherPc"))}</b></td>
+      <td><input type="text" class="cName" value="${esc(c.name)}" maxlength="80" /></td>
+      <td><select class="cRoom">${roomOptions(c.room_id)}</select></td>
+      <td>${esc(t("cam.types")[c.source_type])}${c.source_type === "url" ? `<br><small class="muted">${esc(c.source)}</small>` : ""}</td>
+      <td><input type="checkbox" class="cOn"${c.enabled ? " checked" : ""} /></td>
       <td>${c.last_ts ? new Date(c.last_ts).toLocaleString(I.locale(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : esc(t("cam.never"))}</td>
-      <td class="acts"><button class="btn" data-edit="${c.id}">${esc(t("cam.edit"))}</button> <button class="btn" data-del="${c.id}">${esc(t("cam.del"))}</button></td></tr>`).join("") ||
-      `<tr><td colspan="7" class="empty-note">${esc(t("cam.noCameras"))}</td></tr>`;
+      <td class="acts"><button class="btn btn-primary" data-save="${c.id}">${esc(t("cam.save"))}</button> <button class="btn" data-del="${c.id}">${esc(t("cam.del"))}</button></td></tr>`).join("") ||
+      `<tr><td colspan="7" class="empty-note">${esc(t("cam.noDevices"))}</td></tr>`;
   }
 
-  function fillBuildingsSel(selectedBid) {
-    const seen = new Map();
-    for (const r of S.flat.rooms) if (!seen.has(r.bid)) seen.set(r.bid, r.building);
-    $("fBuildingSel").innerHTML = `<option value="">${esc(t("cam.chooseBuilding"))}</option>` +
-      [...seen.entries()].map(([bid, name]) => `<option value="${bid}">${esc(/^\d+$/.test(name) ? t("buildingN", { n: name }) : name)}</option>`).join("");
-    if (selectedBid) $("fBuildingSel").value = selectedBid;
-  }
-
-  function fillRoomsSel(bid, selected) {
-    const rooms = S.flat.rooms.filter((r) => String(r.bid) === String(bid)).sort((a, b) => a.name.localeCompare(b.name, "ru", { numeric: true }));
-    $("fRoom").innerHTML = `<option value="">${esc(t("cam.chooseRoom"))}</option>` + rooms.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
-    if (selected) $("fRoom").value = selected;
-  }
-
-  async function fillDevices(selectedLabel) {
-    const sel = $("fDevice");
-    sel.innerHTML = `<option value="">…</option>`;
-    try {
-      const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
-      tmp.getTracks().forEach((tr) => tr.stop());
-      const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
-      sel.innerHTML = devs.map((d, i) => `<option value="${esc(d.label || "Camera " + (i + 1))}">${esc(d.label || "Camera " + (i + 1))}</option>`).join("");
-      if (selectedLabel && !devs.some((d) => d.label === selectedLabel)) sel.insertAdjacentHTML("afterbegin", `<option value="${esc(selectedLabel)}">${esc(selectedLabel)}</option>`);
-      if (selectedLabel) sel.value = selectedLabel;
-    } catch (e) {
-      sel.innerHTML = selectedLabel ? `<option value="${esc(selectedLabel)}">${esc(selectedLabel)}</option>` : `<option value="">—</option>`;
-      $("fErr").textContent = t("cam.errCamera", { e: e.message || e.name });
-      $("fErr").hidden = false;
-    }
-  }
-
-  function onTypeChange() {
-    const type = $("fType").value;
-    $("fDeviceWrap").hidden = type !== "device";
-    $("fUrlWrap").hidden = type !== "url";
-    $("fHint").textContent = type === "device" ? t("cam.deviceHint") : type === "url" ? t("cam.urlHint") : t("cam.fileHint");
-    if (type === "device" && !$("fDevice").options.length) fillDevices($("fDevice").dataset.want || "");
-  }
-
-  function openForm(cam) {
-    $("sForm").hidden = false;
-    $("fErr").hidden = true;
-    $("fId").value = cam ? cam.id : "";
-    $("fName").value = cam ? cam.name : "";
-    const room = cam ? roomById(cam.room_id) : null;
-    fillBuildingsSel(room ? room.bid : "");
-    fillRoomsSel(room ? room.bid : "", cam ? cam.room_id : "");
-    $("fType").value = cam ? cam.source_type : "device";
-    $("fUrl").value = cam && cam.source_type === "url" ? cam.source : "";
-    $("fEnabled").checked = cam ? cam.enabled : true;
-    $("fDevice").innerHTML = "";
-    $("fDevice").dataset.want = cam ? cam.device_label || "" : "";
-    onTypeChange();
-    $("sForm").scrollIntoView({ behavior: "smooth", block: "start" });
-    $("fName").focus();
-  }
-
-  $("sAdd").onclick = () => openForm(null);
-  $("fCancel").onclick = () => ($("sForm").hidden = true);
-  $("fType").onchange = onTypeChange;
-  $("fBuildingSel").onchange = () => fillRoomsSel($("fBuildingSel").value);
   $("sTable").addEventListener("click", async (e) => {
-    const ed = e.target.closest("[data-edit]");
-    if (ed) return openForm(S.cams.find((c) => String(c.id) === ed.dataset.edit));
-    const del = e.target.closest("[data-del]");
-    if (del) {
-      const cam = S.cams.find((c) => String(c.id) === del.dataset.del);
-      if (!cam || !confirm(t("cam.confirmDel", { name: cam.name }))) return;
-      try {
-        await rpc("oshtu_cam_delete", { p_token: S.token, p_id: cam.id });
-        await loadCams();
-      } catch (err) { toast(err.message); }
-    }
-  });
-
-  $("sForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    $("fErr").hidden = true;
-    const type = $("fType").value;
-    const cam = {
-      id: $("fId").value ? Number($("fId").value) : null,
-      name: $("fName").value.trim(),
-      room_id: Number($("fRoom").value),
-      source_type: type,
-      source: type === "url" ? $("fUrl").value.trim() : null,
-      device_label: type === "device" ? $("fDevice").value : null,
-      enabled: $("fEnabled").checked,
-    };
-    if (!cam.room_id) { $("fErr").textContent = t("cam.chooseRoom"); $("fErr").hidden = false; return; }
+    const sv = e.target.closest("[data-save]");
+    const dl = e.target.closest("[data-del]");
+    const tr = e.target.closest("tr");
+    if (!tr || (!sv && !dl)) return;
+    const cam = S.cams.find((c) => String(c.id) === tr.dataset.id);
+    if (!cam) return;
     try {
-      await rpc("oshtu_cam_save", { p_token: S.token, p_cam: cam });
-      $("sForm").hidden = true;
+      if (sv) {
+        await rpc("oshtu_cam_save", { p_token: token(), p_cam: {
+          id: cam.id, name: tr.querySelector(".cName").value.trim() || cam.name, source_type: cam.source_type,
+          room_id: tr.querySelector(".cRoom").value || null, enabled: tr.querySelector(".cOn").checked, source: cam.source,
+        } });
+        toast(t("cam.rowSaved"));
+      } else {
+        if (!confirm(t("cam.confirmDel", { name: cam.name }))) return;
+        await rpc("oshtu_cam_delete", { p_token: token(), p_id: cam.id });
+      }
+      await reloadCams();
+    } catch (err) { toast(err.message); }
+  });
+
+  $("hostSave").onclick = async () => {
+    const name = $("hostName").value.trim().slice(0, 60);
+    if (!name) return;
+    store.set(HOST_NAME, name);
+    $("hostLabel").textContent = name;
+    await scan();
+    toast(t("cam.saved"));
+  };
+  $("rescan").onclick = scan;
+  $("rescan2").onclick = scan;
+
+  $("addIp").onclick = () => {
+    $("ipForm").hidden = false;
+    $("ipRoom").innerHTML = roomOptions(null);
+    $("ipName").focus();
+  };
+  $("ipCancel").onclick = () => ($("ipForm").hidden = true);
+  $("ipForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("ipErr").hidden = true;
+    try {
+      await rpc("oshtu_cam_save", { p_token: token(), p_cam: {
+        name: $("ipName").value.trim(), source_type: "url", source: $("ipUrl").value.trim(),
+        room_id: $("ipRoom").value || null, enabled: true, host_key: hostKey(), host_name: hostName(),
+      } });
+      $("ipForm").hidden = true;
+      $("ipForm").reset();
+      await reloadCams();
       toast(t("cam.saved"));
-      await loadCams();
     } catch (err) {
-      $("fErr").textContent = err.message;
-      $("fErr").hidden = false;
+      $("ipErr").textContent = err.message;
+      $("ipErr").hidden = false;
     }
   });
 
-  // ================= аналитика: план ОшТУ vs факт =================
+  // ================= аналитика: план ОшТУ vs факт (только минуты пар) =================
   function periodRange() {
     const now = new Date();
-    const from = S.period === "today" ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      : new Date(now.getTime() - (S.period === "d7" ? 7 : 30) * 864e5);
+    const from = S.period === "today" ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) : new Date(now.getTime() - (S.period === "d7" ? 7 : 30) * 864e5);
     return { from, to: new Date(now.getTime() + 60000) };
   }
 
@@ -581,10 +519,8 @@
     $("aThreshold").textContent = t("cam.threshold", { n: HELD_THRESHOLD });
     const { from, to } = periodRange();
     let rows = [];
-    try {
-      rows = (await rpc("oshtu_cam_stats", { p_token: S.token, p_from: from.toISOString(), p_to: to.toISOString() })) || [];
-    } catch (e) { toast(e.message); }
-    renderStats(rows);
+    try { rows = (await rpc("oshtu_cam_stats", { p_token: token(), p_from: from.toISOString(), p_to: to.toISOString() })) || []; } catch (e) { toast(e.message); }
+    renderStats(rows.filter((r) => r.p)); // на всякий случай — только минуты пар
   }
 
   function renderStats(rows) {
@@ -594,48 +530,40 @@
     $("aRoomsCard").hidden = !has;
     const label = (rid) => (roomById(rid) || {}).label || String(rid);
     const dayKey = (ts) => new Date(ts).toLocaleDateString(I.locale(), { day: "numeric", month: "short" });
-
-    // пары: аудитория × дата × номер пары
-    const pairs = new Map();
-    const perRoom = new Map();
-    const extra = new Map();
+    const pairs = new Map(), perRoom = new Map(), extra = new Map();
     for (const r of rows) {
       const room = perRoom.get(r.r) || { minutes: 0, planned: 0, held: 0, missed: 0, extra: 0, sum: 0, n: 0, max: 0 };
       room.minutes++;
       room.max = Math.max(room.max, r.m);
       perRoom.set(r.r, room);
-      if (r.p) {
-        const k = `${r.r}|${dayKey(r.t)}|${r.p}`;
-        const p = pairs.get(k) || { room: r.r, date: dayKey(r.t), pair: r.p, minutes: 0, sum: 0, scheduled: false, subject: r.sub, group: r.g };
-        p.minutes++;
-        p.sum += r.a;
-        p.scheduled = p.scheduled || r.s;
-        pairs.set(k, p);
-      }
+      const k = `${r.r}|${dayKey(r.t)}|${r.p}`;
+      const p = pairs.get(k) || { room: r.r, date: dayKey(r.t), pair: r.p, minutes: 0, sum: 0, scheduled: false, subject: r.sub, group: r.g };
+      p.minutes++;
+      p.sum += r.a;
+      p.scheduled = p.scheduled || r.s;
+      pairs.set(k, p);
       if (!r.s && r.a >= HELD_THRESHOLD) {
         room.extra++;
-        const k = `${r.r}|${dayKey(r.t)}`;
-        const x = extra.get(k) || { room: r.r, date: dayKey(r.t), min: 0, max: 0 };
+        const xk = `${r.r}|${dayKey(r.t)}`;
+        const x = extra.get(xk) || { room: r.r, date: dayKey(r.t), min: 0, max: 0 };
         x.min++;
         x.max = Math.max(x.max, r.m);
-        extra.set(k, x);
+        extra.set(xk, x);
       }
     }
-
     let planned = 0, held = 0, missed = 0, heldSum = 0;
     const byPair = Array.from({ length: 6 }, () => ({ sum: 0, n: 0 }));
     const missedList = [];
     for (const p of pairs.values()) {
       const avg = p.sum / p.minutes;
       if (p.pair >= 1 && p.pair <= 6) { byPair[p.pair - 1].sum += avg; byPair[p.pair - 1].n++; }
-      if (!p.scheduled || p.minutes < 10) continue; // мало наблюдений — не судим
+      if (!p.scheduled || p.minutes < 10) continue;
       const room = perRoom.get(p.room);
       planned++; room.planned++;
       if (avg >= HELD_THRESHOLD) { held++; room.held++; heldSum += avg; room.sum += avg; room.n++; }
       else { missed++; room.missed++; missedList.push({ ...p, avg }); }
     }
     const extraMin = [...perRoom.values()].reduce((s, r) => s + r.extra, 0);
-
     const k = [
       { label: t("cam.k.minutes"), value: rows.length.toLocaleString(I.locale()), sub: t("cam.kUnit.min") },
       { label: t("cam.k.planned"), value: planned, sub: t("cam.kUnit.pairs") },
@@ -646,20 +574,17 @@
     ];
     $("aKpis").innerHTML = k.map((x) => `<div class="kpi"><div class="k-label">${esc(x.label)}</div><div class="k-value">${esc(x.value)}</div><div class="k-sub">${esc(x.sub)}</div></div>`).join("");
     if (!has) return;
-
     const max = Math.max(1, ...byPair.map((b) => (b.n ? b.sum / b.n : 0)));
     $("aByPair").innerHTML = byPair.map((b, i) => {
       const v = b.n ? b.sum / b.n : 0;
       return `<div class="bar"><span class="lbl">${esc(t("pairFull", { n: i + 1 }))} <small>${TIMES[i + 1][0]}</small></span>
         <span class="track"><span class="fill" style="width:${(v / max) * 100}%"></span></span><span class="val">${b.n ? fmt1(v) : "—"}</span></div>`;
     }).join("");
-
     const ev = [
       ...missedList.slice(-30).reverse().map((p) => `<div class="issue"><div class="when">⚠ ${esc(t("cam.evMissed", { room: label(p.room), date: p.date, pair: t("pairFull", { n: p.pair }), subject: p.subject || "—", group: p.group || "—", n: fmt1(p.avg) }))}</div></div>`),
       ...[...extra.values()].filter((x) => x.min >= 10).map((x) => `<div class="issue"><div class="when">ℹ ${esc(t("cam.evExtra", { room: label(x.room), date: x.date, min: x.min, max: x.max }))}</div></div>`),
     ];
     $("aEvents").innerHTML = ev.join("") || `<div class="empty-note">${esc(t("notFound"))}</div>`;
-
     $("aRooms").querySelector("tbody").innerHTML = [...perRoom.entries()].sort((a, b) => b[1].minutes - a[1].minutes).map(([rid, r]) => `<tr>
       <td><b>${esc(label(rid))}</b></td><td class="num">${r.minutes}</td><td class="num">${r.planned}</td><td class="num">${r.held}</td>
       <td class="num">${r.missed}</td><td class="num">${r.extra}</td><td class="num">${r.n ? fmt1(r.sum / r.n) : "—"}</td><td class="num">${r.max}</td></tr>`).join("");
@@ -673,44 +598,65 @@
     loadStats();
   };
 
-  // ================= вкладки и язык =================
+  // ================= вкладки, язык, запуск =================
   function setTab(tab) {
     if (!["watch", "setup", "stats"].includes(tab)) tab = "watch";
     document.querySelectorAll("#camTabs a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
     for (const id of ["watch", "setup", "stats"]) $("tab-" + id).hidden = id !== tab;
-    history.replaceState(null, "", "#" + tab);
     if (tab === "stats") loadStats();
+    if (tab === "setup") renderSetupTable();
   }
   $("camTabs").addEventListener("click", (e) => {
     const a = e.target.closest("[data-tab]");
     if (!a) return;
     e.preventDefault();
+    history.replaceState(null, "", "#" + a.dataset.tab);
     setTab(a.dataset.tab);
   });
+  window.addEventListener("hashchange", () => setTab(location.hash.slice(1)));
 
   function applyLang(lang) {
     if (lang) I.setLang(lang); else I.apply();
     document.title = `${t("cam.title")} — ${t("title")}`;
     document.querySelectorAll(".lang-seg button").forEach((b) => b.classList.toggle("active", b.dataset.lang === I.lang));
-    if (S.token) {
-      $("wStart").textContent = S.running ? t("cam.stop") : t("cam.start");
-      if (S.model) $("wModel").textContent = t("cam.modelReady");
+    if (S.session) {
+      for (const tile of S.tiles.values()) renderTileHead(tile);
       renderSetupTable();
       renderSendInfo();
-      updatePanel(S.running ? Number($("wCount").textContent) : null);
+      if (S.model) $("wModel").textContent = t("cam.modelReady");
       if (!$("tab-stats").hidden) loadStats();
-      if (!$("sForm").hidden) onTypeChange();
     }
   }
-  document.querySelectorAll(".lang-seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  $("aLang").addEventListener("click", (e) => {
     const b = e.target.closest("[data-lang]");
     if (b) applyLang(b.dataset.lang);
-  }));
+  });
+  $("wBlur").onchange = () => { for (const tile of S.tiles.values()) tile.box.classList.toggle("blur", $("wBlur").checked); };
+  $("logout").onclick = async () => { await A.logout(); location.replace("./"); };
 
-  window.addEventListener("hashchange", () => S.token && setTab(location.hash.replace("#", "")));
-  window.addEventListener("beforeunload", () => flushMinute(true));
+  async function init() {
+    applyLang();
+    S.session = await A.check();
+    if (!S.session) return location.replace("./"); // вход — в самой «Аналитике ОшТУ»
+    $("appView").hidden = false;
+    $("who").textContent = S.session.login;
+    $("hostLabel").textContent = hostName();
+    $("hostName").value = hostName();
+    await loadDataset();
+    setTab(location.hash.slice(1) || "watch");
+    preloadModel();
+    await scan();
+    renderSendInfo();
+    keepAwake();
+    tick();
+    setInterval(sendQueue, 60000);
+    setInterval(() => scan(), 10 * 60000); // раз в 10 минут — новые камеры
+    setInterval(() => rpc("oshtu_room_dataset", {}).then((x) => { store.set("oa.dataset.v1", x); useDataset(x); }).catch(() => {}), 6 * 3600000);
+    navigator.mediaDevices.addEventListener("devicechange", () => setTimeout(scan, 1500));
+    document.addEventListener("visibilitychange", keepAwake);
+    window.addEventListener("online", sendQueue);
+    window.addEventListener("beforeunload", () => { for (const tile of S.tiles.values()) flushMinute(tile); });
+  }
 
-  applyLang();
-  renderSendInfo();
-  boot();
+  init();
 })();

@@ -468,7 +468,7 @@
     };
     // наблюдение с камер — отдельное окно (вход администратора)
     $("camsBtn").onclick = () => {
-      const w = window.open("cameras.html", "oshtu-cams", "popup,width=1320,height=880");
+      const w = window.open("cameras.html", "oshtu-cams", "popup,width=1400,height=900");
       if (!w) location.href = "cameras.html";
     };
     $("refresh").onclick = () => { $("refresh").textContent = "…"; load(true).finally(() => ($("refresh").textContent = "⟳")); };
@@ -526,10 +526,52 @@
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => state.a && render());
   }
 
+  // ================= вход администратора =================
+  function showDash(session) {
+    $("loginView").hidden = true;
+    $("dashView").hidden = false;
+    $("whoami").textContent = session.login || "";
+    if (!state.flat) load(false);
+  }
+
+  function showLogin() {
+    $("dashView").hidden = true;
+    $("loginView").hidden = false;
+    $("lLogin").focus();
+  }
+
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("loginBtn").disabled = true;
+    $("loginErr").hidden = true;
+    try {
+      const s = await window.OAuth.login($("lLogin").value.trim(), $("lPass").value);
+      $("lPass").value = "";
+      showDash(s);
+    } catch (err) {
+      $("loginErr").textContent = err instanceof window.OAuth.ApiError
+        ? (/попыток/.test(err.message) ? err.message : t("cam.badLogin")) : String(err.message || err);
+      $("loginErr").hidden = false;
+    } finally {
+      $("loginBtn").disabled = false;
+    }
+  });
+
+  $("logoutBtn").onclick = async () => {
+    await window.OAuth.logout();
+    showLogin();
+  };
+
+  $("lLang").onclick = (e) => {
+    const b = e.target.closest("button[data-lang]");
+    if (b) { applyLang(b.dataset.lang); document.querySelectorAll("#lLang button").forEach((x) => x.classList.toggle("active", x === b)); }
+  };
+
   bind();
   applyLang();
+  document.querySelectorAll("#lLang button").forEach((x) => x.classList.toggle("active", x.dataset.lang === I.lang));
   initFree();
-  load(false);
+  window.OAuth.check().then((s) => (s ? showDash(s) : showLogin()));
   if ("serviceWorker" in navigator && location.protocol.startsWith("http") && location.hostname !== "127.0.0.1" && location.hostname !== "localhost") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
