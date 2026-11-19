@@ -466,6 +466,11 @@
       const b = e.target.closest("button[data-lang]");
       if (b) applyLang(b.dataset.lang);
     };
+    // наблюдение с камер — отдельное окно (вход администратора)
+    $("camsBtn").onclick = () => {
+      const w = window.open("cameras.html", "oshtu-cams", "popup,width=1320,height=880");
+      if (!w) location.href = "cameras.html";
+    };
     $("refresh").onclick = () => { $("refresh").textContent = "…"; load(true).finally(() => ($("refresh").textContent = "⟳")); };
     $("roomSearch").oninput = renderRoomTable;
     $("roomKindFilter").onchange = renderRoomTable;

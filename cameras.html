@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Наблюдение с камер — Аналитика ОшТУ</title>
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="cameras.css" />
+</head>
+<body class="cam-page">
+  <!-- ===== Вход ===== -->
+  <section id="loginView" class="login-wrap" hidden>
+    <form id="loginForm" class="card login-card" autocomplete="on">
+      <img src="icon.svg" alt="" width="48" height="48" />
+      <h1 data-i18n="cam.loginTitle">Вход администратора</h1>
+      <p class="muted" data-i18n="cam.loginLead">Раздел доступен только администратору.</p>
+      <label class="fld"><span data-i18n="cam.login">Логин</span><input id="lLogin" name="username" autocomplete="username" required maxlength="64" /></label>
+      <label class="fld"><span data-i18n="cam.password">Пароль</span><input id="lPass" name="password" type="password" autocomplete="current-password" required maxlength="128" /></label>
+      <p id="loginErr" class="err" hidden></p>
+      <button class="btn btn-primary" id="loginBtn" type="submit" data-i18n="cam.signIn">Войти</button>
+      <div class="seg lang-seg" id="lLang">
+        <button type="button" data-lang="ru">RU</button><button type="button" data-lang="ky">KY</button><button type="button" data-lang="en">EN</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ===== Приложение ===== -->
+  <div id="appView" hidden>
+    <header class="top">
+      <div class="wrap top-row">
+        <div class="brand">
+          <img src="icon.svg" alt="" width="34" height="34" />
+          <div>
+            <h1 data-i18n="cam.title">Наблюдение с камер</h1>
+            <p class="muted" id="who">ESA</p>
+          </div>
+        </div>
+        <div class="filters">
+          <div class="seg lang-seg" id="aLang">
+            <button data-lang="ru">RU</button><button data-lang="ky">KY</button><button data-lang="en">EN</button>
+          </div>
+          <button class="btn" id="logout" data-i18n="cam.signOut">Выйти</button>
+        </div>
+      </div>
+      <nav class="wrap tabs" id="camTabs">
+        <a href="#" data-tab="watch" class="active" data-i18n="cam.tabs.watch">Наблюдение</a>
+        <a href="#" data-tab="setup" data-i18n="cam.tabs.setup">Камеры</a>
+        <a href="#" data-tab="stats" data-i18n="cam.tabs.stats">Аналитика</a>
+      </nav>
+    </header>
+
+    <main class="wrap">
+      <p class="privacy">🔒 <span data-i18n="cam.privacy"></span></p>
+
+      <!-- ===== Наблюдение ===== -->
+      <section id="tab-watch" class="tabpane">
+        <div class="watch-tools card">
+          <label class="fld inline"><span data-i18n="cam.chooseCamera">Камера</span><select id="wCamera"></select></label>
+          <input id="wFile" type="file" accept="video/*" hidden />
+          <button class="btn" id="wFileBtn" hidden data-i18n="cam.chooseFile">Выбрать видео</button>
+          <button class="btn btn-primary" id="wStart" data-i18n="cam.start">▶ Запустить</button>
+          <label class="chk"><input type="checkbox" id="wBoxes" checked /> <span data-i18n="cam.boxes">Рамки</span></label>
+          <label class="chk"><input type="checkbox" id="wBlur" /> <span data-i18n="cam.blur">Размыть видео</span></label>
+          <span class="status" id="wModel"></span>
+        </div>
+        <p id="wNoCams" class="empty-note" hidden data-i18n="cam.noCameras"></p>
+
+        <div class="watch-grid">
+          <div class="stage card">
+            <div class="video-box" id="videoBox">
+              <video id="wVideo" playsinline muted></video>
+              <img id="wImg" alt="" hidden />
+              <canvas id="wCanvas"></canvas>
+              <div class="video-empty" id="wEmpty" data-i18n="cam.waiting">Камера не запущена</div>
+            </div>
+            <p id="wErr" class="err" hidden></p>
+          </div>
+
+          <aside class="side">
+            <div class="card big-count">
+              <div class="k-label" data-i18n="cam.peopleNow">Людей сейчас</div>
+              <div class="count" id="wCount">—</div>
+              <div class="k-sub"><span data-i18n="cam.minuteAvg">Среднее за минуту</span>: <b id="wAvg">—</b></div>
+            </div>
+            <div class="card">
+              <div class="row"><span class="muted" data-i18n="cam.room">Аудитория</span><b id="wRoom">—</b></div>
+              <div class="row"><span class="muted" data-i18n="cam.now">Сейчас</span><b id="wPair">—</b></div>
+              <div class="plan">
+                <div class="muted" data-i18n="cam.plan">По расписанию ОшТУ</div>
+                <div id="wPlan">—</div>
+              </div>
+              <div id="wMatch" class="match"></div>
+            </div>
+            <div class="card small">
+              <div id="wSent"></div>
+              <div id="wQueue"></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ===== Настройка камер ===== -->
+      <section id="tab-setup" class="tabpane" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h2 data-i18n="cam.setupTitle">Камеры и аудитории</h2>
+            <button class="btn btn-primary" id="sAdd" data-i18n="cam.add">＋ Добавить камеру</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl" id="sTable">
+              <thead><tr>
+                <th data-i18n="cam.name">Название</th><th data-i18n="cam.room">Аудитория</th><th data-i18n="cam.type">Источник</th>
+                <th data-i18n="cam.source">Адрес / устройство</th><th data-i18n="cam.enabled">Включена</th><th data-i18n="cam.last">Последние данные</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <form id="sForm" class="card" hidden>
+          <input type="hidden" id="fId" />
+          <div class="form-grid">
+            <label class="fld"><span data-i18n="cam.name">Название</span><input id="fName" maxlength="80" required /></label>
+            <label class="fld"><span data-i18n="cam.building">Корпус</span><select id="fBuildingSel" required></select></label>
+            <label class="fld"><span data-i18n="cam.room">Аудитория</span><select id="fRoom" required></select></label>
+            <label class="fld"><span data-i18n="cam.type">Источник</span>
+              <select id="fType">
+                <option value="device" data-i18n="cam.types.device"></option>
+                <option value="url" data-i18n="cam.types.url"></option>
+                <option value="file" data-i18n="cam.types.file"></option>
+              </select>
+            </label>
+            <label class="fld" id="fDeviceWrap"><span data-i18n="cam.source">Устройство</span><select id="fDevice"></select></label>
+            <label class="fld" id="fUrlWrap" hidden><span data-i18n="cam.source">Адрес</span><input id="fUrl" type="url" placeholder="https://camera.local/video.mjpg" maxlength="500" /></label>
+            <label class="chk"><input type="checkbox" id="fEnabled" checked /> <span data-i18n="cam.enabled">Включена</span></label>
+          </div>
+          <p class="note" id="fHint"></p>
+          <p id="fErr" class="err" hidden></p>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit" data-i18n="cam.save">Сохранить</button>
+            <button class="btn" type="button" id="fCancel" data-i18n="cam.cancel">Отмена</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ===== Аналитика ===== -->
+      <section id="tab-stats" class="tabpane" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h2 data-i18n="cam.statsTitle">План ОшТУ и факт с камер</h2>
+            <div class="seg" id="aPeriod">
+              <button data-v="today" class="active" data-i18n="cam.period.today">Сегодня</button>
+              <button data-v="d7" data-i18n="cam.period.d7">7 дней</button>
+              <button data-v="d30" data-i18n="cam.period.d30">30 дней</button>
+            </div>
+          </div>
+          <p class="note" id="aThreshold"></p>
+        </div>
+        <div class="kpis" id="aKpis"></div>
+        <div id="aEmpty" class="card empty-note" hidden data-i18n="cam.noData"></div>
+        <div class="grid2" id="aCharts">
+          <div class="card">
+            <div class="card-head"><h2 data-i18n="cam.byPair">Среднее число людей по номерам пар</h2></div>
+            <div id="aByPair" class="bars"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2 data-i18n="cam.events">Расхождения с расписанием</h2></div>
+            <div id="aEvents"></div>
+          </div>
+        </div>
+        <div class="card" id="aRoomsCard">
+          <div class="card-head"><h2 data-i18n="cam.byRoom">По аудиториям</h2></div>
+          <div class="table-wrap">
+            <table class="tbl" id="aRooms">
+              <thead><tr>
+                <th data-i18n="cam.rth.room"></th><th class="num" data-i18n="cam.rth.minutes"></th><th class="num" data-i18n="cam.rth.planned"></th>
+                <th class="num" data-i18n="cam.rth.held"></th><th class="num" data-i18n="cam.rth.missed"></th><th class="num" data-i18n="cam.rth.extra"></th>
+                <th class="num" data-i18n="cam.rth.avg"></th><th class="num" data-i18n="cam.rth.max"></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <div id="tip" class="tip" role="tooltip"></div>
+
+  <script src="config.js"></script>
+  <script src="i18n.js"></script>
+  <script src="cam-i18n.js"></script>
+  <script src="engine.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js" defer></script>
+  <script src="cameras.js" defer></script>
+</body>
+</html>

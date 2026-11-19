@@ -1,0 +1,58 @@
+/* Страница «Наблюдение с камер» — дополняет style.css */
+.login-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.login-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; text-align: center; padding: 28px 24px; }
+.login-card img { margin: 0 auto; border-radius: 12px; }
+.login-card h1 { margin: 4px 0 0; font-size: 21px; }
+.login-card p { margin: 0; }
+.login-card .lang-seg { align-self: center; }
+.fld { display: flex; flex-direction: column; gap: 4px; text-align: left; font-size: 13px; }
+.fld > span { font-weight: 600; color: var(--text-2); }
+.fld input, .fld select { background: var(--surface); border: 1px solid var(--grid); border-radius: 10px; padding: 9px 11px; min-height: 40px; color: var(--text); font: inherit; }
+.fld input:focus, .fld select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fld.inline { flex-direction: row; align-items: center; gap: 8px; }
+.btn-primary { background: var(--accent); color: #fff; border-color: transparent; }
+.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+.btn-primary:disabled { opacity: 0.5; cursor: default; }
+.err { color: var(--crit); font-size: 13px; margin: 0; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; cursor: pointer; }
+.status { font-size: 12.5px; color: var(--muted); }
+.privacy { font-size: 12.5px; color: var(--text-2); background: var(--surface-2); border-radius: 10px; padding: 8px 12px; margin: 14px 0 0; }
+.tabpane { padding-top: 14px; }
+
+.watch-tools { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.watch-grid { display: grid; grid-template-columns: 1fr 320px; gap: 14px; }
+.stage { padding: 10px; }
+.video-box { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; }
+.video-box video, .video-box img, .video-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.video-box.blur video, .video-box.blur img { filter: blur(14px); }
+.video-empty { position: absolute; inset: 0; display: grid; place-items: center; color: #9a9890; font-size: 15px; }
+.side .card { margin-bottom: 14px; }
+.big-count .count { font-size: 64px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 14px; }
+.row b { text-align: right; }
+.plan { padding-top: 10px; font-size: 14px; }
+.plan .muted { font-size: 12px; margin-bottom: 4px; }
+.plan .lesson { padding: 6px 0; }
+.plan .lesson small { display: block; color: var(--text-2); }
+.match { margin-top: 10px; font-size: 13.5px; font-weight: 650; border-radius: 10px; padding: 8px 10px; background: var(--surface-2); }
+.match.ok { background: color-mix(in srgb, var(--s3) 18%, transparent); }
+.match.warn { background: color-mix(in srgb, var(--warn) 25%, transparent); }
+.card.small { font-size: 12.5px; color: var(--muted); }
+
+.form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: end; }
+.form-actions { display: flex; gap: 8px; margin-top: 12px; }
+.tbl .acts { white-space: nowrap; text-align: right; }
+.tbl .acts .btn { padding: 4px 9px; min-height: 30px; font-size: 12.5px; }
+.tbl .off { color: var(--muted); }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 140%); background: var(--text); color: var(--page); padding: 9px 16px; border-radius: 12px; font-weight: 600; font-size: 14px; transition: transform 0.25s; z-index: 60; }
+.toast.show { transform: translate(-50%, 0); }
+
+@media (max-width: 960px) {
+  .watch-grid { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .big-count .count { font-size: 52px; }
+}

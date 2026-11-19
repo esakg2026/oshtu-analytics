@@ -68,6 +68,8 @@ select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .seg { display: inline-flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: transparent; padding: 5px 10px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-2); }
 .seg button.active { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--ring); }
+.btn-cam { background: var(--accent); color: #fff; border-color: transparent; }
+.btn-cam:hover { background: var(--accent); filter: brightness(1.08); }
 .lang-seg button { min-width: 34px; letter-spacing: 0.02em; }
 .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding-bottom: 8px; }
 .tabs::-webkit-scrollbar { display: none; }
@@ -215,6 +217,7 @@ select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1p
   .f > span { display: none; }
   .f:first-child { flex: 1 1 calc(100% - 52px); min-width: 0; order: 0; }
   #refresh { order: 1; }
+  #camsBtn { order: 4; }
   .f:nth-child(2) { order: 2; }
   .f:nth-child(3) { order: 3; margin-left: auto; }
   .f select { width: 100%; }
